@@ -1,0 +1,71 @@
+{
+  "name": "poc-screen-and-audio-capture",
+  "version": "1.0.0",
+  "description": "Screen and audio capture recorder.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "productName": "ScreenAudioCapture",
+  "build": {
+    "appId": "com.example.screenaudiocapture",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "config/**",
+      "transcription/**",
+      "utils/**",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.video",
+      "artifactName": "ScreenAudioCapture-${version}-mac.${ext}",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "ScreenAudioCapture needs microphone or loopback access to include audio in recordings.",
+        "NSCameraUsageDescription": "ScreenAudioCapture requests screen access to capture display content."
+      }
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Video"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ScreenAudioCapture-${version}-win.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^39.2.4",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "@google/genai": "^1.30.0",
+    "dotenv": "^16.4.5",
+    "fluent-ffmpeg": "^2.1.2"
+  }
+}
