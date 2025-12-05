@@ -1,19 +1,3 @@
-const path = require('node:path');
-
-const toBoolean = (value, defaultValue = false) => {
-    if (value === undefined || value === null || value === '') {
-        return defaultValue;
-    }
-    const normalized = String(value).toLowerCase();
-    if (['true', '1', 'yes', 'on'].includes(normalized)) {
-        return true;
-    }
-    if (['false', '0', 'no', 'off'].includes(normalized)) {
-        return false;
-    }
-    return defaultValue;
-};
-
 const toInteger = (value, defaultValue) => {
     if (value === undefined || value === null || value === '') {
         return defaultValue;
@@ -50,7 +34,7 @@ module.exports = function loadTranscriptionConfig() {
         streaming: {
             chunkTimesliceMs: toInteger(TRANSCRIPTION_CHUNK_TIMESLICE_MS, 200),
             maxChunkBytes: toInteger(TRANSCRIPTION_MAX_CHUNK_BYTES, 128 * 1024),
-            prompt: TRANSCRIPTION_PROMPT || 'Transcribe the incoming system audio. Respond with lower-case plain text, no timestamps, no speaker labels.',
+            prompt: TRANSCRIPTION_PROMPT || 'Transcribe the audio into standard English. The speaker is speaking English. Do not transcribe into any other language. Output only English text.',
             silenceFillMs: toInteger(TRANSCRIPTION_SILENCE_FILL_MS, 200),
             silenceFrameMs: toInteger(TRANSCRIPTION_SILENCE_FRAME_MS, 20)
         }

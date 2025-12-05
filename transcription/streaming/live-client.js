@@ -30,7 +30,7 @@ log('info', `GeminiLiveClient loaded from ${__filename}`);
 class GeminiLiveClient extends EventEmitter {
     constructor(options) {
         super();
-        const { apiKey, model, timeoutMs = 30000 } = options;
+        const { apiKey, model, timeoutMs = 30000, prompt } = options;
 
         if (!apiKey) {
             throw new Error('GeminiLiveClient requires apiKey.');
@@ -40,6 +40,7 @@ class GeminiLiveClient extends EventEmitter {
         // Use the Live API model for real-time audio
         this.model = model || 'gemini-2.5-flash-preview-native-audio-dialog';
         this.timeoutMs = timeoutMs;
+        this.systemInstruction = prompt;
 
         this.ws = null;
         this.connected = false;
@@ -114,6 +115,12 @@ class GeminiLiveClient extends EventEmitter {
                 inputAudioTranscription: {}
             }
         };
+
+        if (this.systemInstruction) {
+            setupMessage.setup.systemInstruction = {
+                parts: [{ text: this.systemInstruction }]
+            };
+        }
 
         log('info', 'Sending setup:', JSON.stringify(setupMessage));
         this.ws.send(JSON.stringify(setupMessage));

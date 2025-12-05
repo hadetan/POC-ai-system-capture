@@ -420,7 +420,8 @@ class StreamingTranscriptionService extends EventEmitter {
         
         return new GeminiLiveClient({
             apiKey: this.config.providerConfig?.gemini?.apiKey,
-            model: model
+            model: model,
+            prompt: this.config.streaming.prompt
         });
     }
 
