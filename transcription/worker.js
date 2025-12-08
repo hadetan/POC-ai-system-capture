@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { parentPort, workerData } = require('node:worker_threads');
-const { GeminiProvider, NoAudioTrackError } = require('./providers/gemini');
+const { AssemblyProvider, NoAudioTrackError } = require('./providers/assemblyai');
 
 if (!parentPort) {
     throw new Error('Transcription worker must be started with a parent port.');
@@ -12,7 +12,7 @@ if (!transcriptsDir) {
     throw new Error('Transcription worker requires a transcriptsDir value.');
 }
 
-const providerKey = workerData?.provider || 'gemini';
+const providerKey = (workerData?.provider || 'assembly').toLowerCase();
 const providerOptions = {
     ...(workerData?.providerConfig?.[providerKey] || {}),
     ffmpegPath: workerData?.ffmpegPath || null
@@ -20,8 +20,8 @@ const providerOptions = {
 
 let provider;
 switch (providerKey) {
-    case 'gemini':
-        provider = new GeminiProvider(providerOptions);
+    case 'assembly':
+        provider = new AssemblyProvider(providerOptions);
         break;
     default:
         throw new Error(`Unsupported transcription provider: ${providerKey}`);
@@ -65,7 +65,7 @@ const handleJob = async (job) => {
     } catch (error) {
         if (error instanceof NoAudioTrackError) {
             const transcriptPath = await buildTranscriptPath(job.videoPath);
-            const header = createHeader(job, 'gemini', provider.modelName);
+            const header = createHeader(job, 'assembly', 'assemblyai-default');
             await writeTranscript({
                 header,
                 body: '',
@@ -90,7 +90,7 @@ const handleJob = async (job) => {
             metadata: job
         });
         const transcribeElapsed = Date.now() - transcribeStartTime;
-        console.log(`[Transcription] Gemini API call took ${transcribeElapsed}ms for job ${job.id}`);
+        console.log(`[Transcription] AssemblyAI API call took ${transcribeElapsed}ms for job ${job.id}`);
 
         const transcriptPath = await buildTranscriptPath(job.videoPath);
         const header = createHeader(job, transcript.provider, transcript.model);

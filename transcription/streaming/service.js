@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
-const { GeminiLiveClient } = require('./live-client');
+const { AssemblyLiveClient } = require('./assembly-client');
 const { PersistentAudioConverter } = require('./audio-converter');
 
 const LOG_PREFIX = '[Transcription:Streaming]';
@@ -403,14 +403,14 @@ class StreamingTranscriptionService extends EventEmitter {
     }
 
     async init() {
-        const apiKey = this.config.providerConfig?.gemini?.apiKey;
+        const apiKey = this.config.providerConfig?.assembly?.apiKey;
         if (!apiKey) {
-            throw new Error('GEMINI_API_KEY must be configured.');
+            throw new Error('ASSEMBLYAI_API_KEY must be configured.');
         }
 
         this.ready = true;
         const cfgTs = this.config.streaming?.chunkTimesliceMs;
-        log('info', `Streaming transcription service initialized (Live API mode) - chunkTimesliceMs=${cfgTs ?? 'unset'}`);
+        log('info', `Streaming transcription service initialized (AssemblyAI realtime) - chunkTimesliceMs=${cfgTs ?? 'unset'}`);
     }
 
     assertReady() {
@@ -424,13 +424,9 @@ class StreamingTranscriptionService extends EventEmitter {
             return new MockStreamingClient();
         }
 
-        // Use Live API model - gemini-2.0-flash-live-001 or similar
-        const model = this.config.providerConfig?.gemini?.model || 'gemini-2.0-flash-live-001';
-
-        return new GeminiLiveClient({
-            apiKey: this.config.providerConfig?.gemini?.apiKey,
-            model: model,
-            prompt: this.config.streaming.prompt
+        return new AssemblyLiveClient({
+            apiKey: this.config.providerConfig?.assembly?.apiKey,
+            streamingParams: {}
         });
     }
 

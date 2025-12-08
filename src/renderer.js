@@ -50,16 +50,76 @@ let latencyWatchdogTimer = null;
 const STALL_THRESHOLD_MS = 5000;
 const STALL_WATCH_INTERVAL_MS = 1000;
 let localTranscript = '';
-let lastServerText = '';
 
 function appendWithOverlap(base, incoming) {
-    if (!base || !incoming) return base + incoming;
+    if (!base) return incoming || '';
+    if (!incoming) return base || '';
+
+    // Find largest overlap where base suffix equals incoming prefix
     const maxOverlap = Math.min(base.length, incoming.length);
     for (let k = maxOverlap; k > 0; k -= 1) {
-        if (base.slice(base.length - k) === incoming.slice(0, k)) {
-            return base + incoming.slice(k);
+        try {
+            if (base.slice(base.length - k) === incoming.slice(0, k)) {
+                return base + incoming.slice(k);
+            }
+        } catch (err) {
+            // ignore and continue
         }
     }
+
+    // No overlap detected; decide if we should insert a separating space.
+    // Rules:
+    //  - If base ends with whitespace OR incoming starts with whitespace => no insert
+    //  - If base ends with sentence punctuation (.,!?\n) => insert a space
+    //  - If incoming starts with an uppercase letter => insert a space (likely new sentence)
+    //  - Otherwise, append directly (to avoid inserting spaces inside words)
+    const rTrimmed = base.replace(/\s+$/, '');
+    const baseLastChar = rTrimmed.length ? rTrimmed[rTrimmed.length - 1] : '';
+    const incomingTrimLeft = incoming.replace(/^\s+/, '');
+    const incomingFirstChar = incomingTrimLeft.length ? incomingTrimLeft[0] : '';
+
+    const isBaseWhitespaceEnding = /\s$/.test(base);
+    const isIncomingWhitespaceStarting = /^\s/.test(incoming);
+    const isBaseSentencePunct = /[.!?\n]/.test(baseLastChar);
+    const isIncomingUppercase = /[A-Z]/.test(incomingFirstChar);
+    const isIncomingPunctuation = /^[.,!?:;"'()\[\]{}]/.test(incomingFirstChar);
+
+    if (isBaseWhitespaceEnding || isIncomingWhitespaceStarting) {
+        return base + incoming;
+    }
+
+    if (isBaseSentencePunct || (isIncomingUppercase && !isIncomingPunctuation)) {
+        return base + ' ' + incomingTrimLeft;
+    }
+
+    // If both sides look like full words (not single-letter fragments), and they are alphanumeric,
+    // insert a separator so two words don't get concatenated without spaces (e.g., "Hello world" + "there").
+    const lastSpaceIdx = base.lastIndexOf(' ');
+    const lastToken = lastSpaceIdx >= 0 ? base.slice(lastSpaceIdx + 1) : base;
+    const incomingFirstToken = incomingTrimLeft.split(/\s+/)[0] || '';
+
+    // If base has a space (the last token is preceded by a space), and that
+    // last token is reasonably long (>2), assume it's a full word and we should
+    // insert a space between it and the incoming if the incoming also appears to
+    // start a word.
+    if (lastSpaceIdx >= 0) {
+        if (isIncomingPunctuation) {
+            return base + incomingTrimLeft;
+        }
+        if (lastToken.length > 2 && incomingFirstToken.length > 0) {
+            return base + ' ' + incomingTrimLeft;
+        }
+        // short token (likely a fragment) — fall through: avoid inserting a space
+        return base + incoming;
+    }
+
+    // No spaces in base (single token so far). If base token length is large,
+    // it's likely a whole word and the incoming token should be separated.
+    if (lastToken.length > 3 && incomingFirstToken.length > 1) {
+        return base + ' ' + incomingTrimLeft;
+    }
+
+    // Default: append directly to preserve continuity for partial words
     return base + incoming;
 }
 
@@ -95,7 +155,6 @@ const teardownSession = async () => {
     resetLatencyWatchdog();
     // clear local cached transcript state
     localTranscript = '';
-    lastServerText = '';
 };
 
 const stopCapture = async () => {
@@ -168,53 +227,21 @@ const attachTranscriptionEvents = () => {
                 lastLatencyUpdateTs = Date.now();
                 updateStatus('Streaming transcription active.');
                 break;
-            case 'update':
-                // Merge server-sent text with local transcript using a small heuristic to avoid
-                // replacing accumulated content with fragment results.
-                {
-                    const serverText = payload.text || '';
-                    const delta = payload.delta || '';
-                    if (serverText) {
-                        if (serverText === lastServerText) {
-                            // no change
-                        } else if (serverText.startsWith(lastServerText) && lastServerText.length > 0) {
-                            // server is sending cumulative text
-                            localTranscript = serverText;
-                        } else if (lastServerText.endsWith(serverText)) {
-                            // server sent a suffix duplicate, ignore
-                        } else if (false && serverText.includes(lastServerText) && lastServerText.length > 0) {
-                            // Disabled heuristic that treated an 'includes' case as authoritative
-                            // because in practice it sometimes truncated prior content.
-                            // We'll instead fall through to overlap/delta merge below.
-                            localTranscript = serverText;
-                        } else if (delta) {
-                            // prefer applying delta if provided - append with overlap detection so we don't duplicate
-                            localTranscript = appendWithOverlap(localTranscript, delta);
-                        } else {
-                            // attempt to merge by overlap: append only non-overlapping portion
-                            const prev = lastServerText || '';
-                            const abs = serverText;
-                            let overlap = 0;
-                            const maxOverlap = Math.min(prev.length, abs.length);
-                            for (let k = maxOverlap; k > 0; k -= 1) {
-                                if (prev.slice(prev.length - k) === abs.slice(0, k)) {
-                                    overlap = k;
-                                    break;
-                                }
-                            }
-                            localTranscript = appendWithOverlap(localTranscript, abs.slice(overlap));
-                        }
-                        lastServerText = serverText;
-                    } else if (delta) {
-                        localTranscript = localTranscript + delta;
-                    }
-                    updateTranscript(localTranscript || '');
+            case 'update': {
+                const serverText = typeof payload.text === 'string' ? payload.text : '';
+                const delta = typeof payload.delta === 'string' ? payload.delta : '';
+                if (delta) {
+                    localTranscript = appendWithOverlap(localTranscript, delta);
+                } else if (serverText) {
+                    localTranscript = appendWithOverlap(localTranscript, serverText);
                 }
+                updateTranscript(localTranscript || '');
                 lastLatencyUpdateTs = Date.now();
                 lastLatencyLabel = `WS ${payload.latencyMs ?? '-'}ms | E2E ${payload.pipelineMs ?? '-'}ms | CONV ${payload.conversionMs ?? '-'}ms`;
                 ensureLatencyWatchdog();
                 renderLatencyStatus();
                 break;
+            }
             case 'warning':
                 console.warn('[Transcription warning]', payload);
                 resetLatencyWatchdog();
@@ -229,7 +256,6 @@ const attachTranscriptionEvents = () => {
                 updateStatus('Transcription session stopped.');
                 // clear cached transcript state when service signals stop
                 localTranscript = '';
-                lastServerText = '';
                 break;
             default:
                 break;
@@ -316,7 +342,6 @@ const startStreamingWithSource = async (source) => {
     mediaRecorder.start(CHUNK_TIMESLICE_MS);
     // reset transcript cache for a new session
     localTranscript = '';
-    lastServerText = '';
     updateStatus('Capturing system audio…');
     updateButtonStates({ isFetching: false });
 };

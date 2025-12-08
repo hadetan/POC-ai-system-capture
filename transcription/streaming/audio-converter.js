@@ -1,8 +1,7 @@
 /**
- * Audio conversion utilities for Gemini Live API.
+ * Audio conversion utilities for realtime transcription APIs.
  *
- * Converts WebM/Opus audio chunks from MediaRecorder to raw PCM format
- * required by the Gemini Live API:
+ * Converts WebM/Opus audio chunks from MediaRecorder to raw PCM format:
  * - 16-bit signed integer
  * - Little-endian byte order
  * - Mono channel

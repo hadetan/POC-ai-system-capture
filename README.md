@@ -17,14 +17,23 @@ npm start
 
 Click **Start Recording** to launch the desktop portal, choose the desired screen/window, then use **Stop Recording** to finalize the `.webm`. Status messages highlight whether system audio is included and where the file was saved.
 
-## AI Transcription (Gemini)
-- Copy `.env.example` to `.env` and set `GEMINI_API_KEY` plus any optional overrides.
+## AI Transcription (AssemblyAI)
+- Copy `.env.example` to `.env` and set `ASSEMBLYAI_API_KEY`. No other providers are supported.
 - Install FFmpeg on your system or provide `TRANSCRIPTION_FFMPEG_PATH` so the app can extract audio from recordings.
-- Ensure `TRANSCRIPTION_ENABLED=true` (default when an API key is present); recordings enqueue a transcription job once the `.webm` file is saved.
-- Leave `TRANSCRIPTION_MODEL` unset to use `models/gemini-1.5-flash-latest`, or override it with any model supported by your Gemini API plan.
-- Transcripts write to `Videos/ScreenAudioCapture/transcripts/<recording-name>.txt` with metadata headers.
+- Realtime transcription streams PCM audio to AssemblyAI's websocket API using the low-latency `AssemblyLiveClient`. Sessions fail fast if no API key is configured.
+- Batch transcription (`transcription/worker.js`) uploads saved recordings to AssemblyAI's REST API and writes results to `Videos/ScreenAudioCapture/transcripts/<recording-name>.txt`.
 - Status messages in the UI reflect queued, running, and completed transcription jobs; errors surface without blocking new recordings.
 - Set `TRANSCRIPTION_ENABLED=false` in your environment to skip AI processing while keeping video capture intact.
+
+### Testing realtime streaming locally
+
+Use the optional harness to stream an existing PCM file through the realtime pipeline:
+
+```bash
+ASSEMBLYAI_API_KEY=... node scripts/test-realtime-assembly.js /path/to/16khz-mono.pcm
+```
+
+The script logs partial/final transcripts plus latency metrics so you can verify end-to-end performance stays under ~200 ms.
 
 ### Controlling chunk size (media recorder timeslice)
 

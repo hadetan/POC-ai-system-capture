@@ -9,32 +9,29 @@ const toInteger = (value, defaultValue) => {
 module.exports = function loadTranscriptionConfig() {
     const {
         TRANSCRIPTION_PROVIDER,
-        TRANSCRIPTION_MODEL,
+        ASSEMBLYAI_API_KEY,
         TRANSCRIPTION_TIMEOUT_MS,
         TRANSCRIPTION_CHUNK_TIMESLICE_MS,
         TRANSCRIPTION_MAX_CHUNK_BYTES,
         TRANSCRIPTION_PROMPT,
         TRANSCRIPTION_SILENCE_FILL_MS,
-        TRANSCRIPTION_SILENCE_FRAME_MS,
-        GEMINI_API_KEY
+        TRANSCRIPTION_SILENCE_FRAME_MS
     } = process.env;
 
-    const provider = (TRANSCRIPTION_PROVIDER || 'gemini').toLowerCase();
+    const provider = (TRANSCRIPTION_PROVIDER || 'assembly').toLowerCase();
 
     return {
         provider,
-        model: TRANSCRIPTION_MODEL || 'models/gemini-1.5-flash-latest',
         providerConfig: {
-            gemini: {
-                apiKey: GEMINI_API_KEY || null,
-                model: TRANSCRIPTION_MODEL || 'models/gemini-1.5-flash-latest',
-                timeoutMs: toInteger(TRANSCRIPTION_TIMEOUT_MS, 90_000)
+            assembly: {
+                apiKey: ASSEMBLYAI_API_KEY || null,
+                timeoutMs: toInteger(TRANSCRIPTION_TIMEOUT_MS, 120_000)
             }
         },
         streaming: {
-            chunkTimesliceMs: toInteger(TRANSCRIPTION_CHUNK_TIMESLICE_MS, 200),
+            chunkTimesliceMs: toInteger(TRANSCRIPTION_CHUNK_TIMESLICE_MS, 150),
             maxChunkBytes: toInteger(TRANSCRIPTION_MAX_CHUNK_BYTES, 128 * 1024),
-            prompt: TRANSCRIPTION_PROMPT || 'Transcribe the incoming system audio. Respond with lower-case plain text, no timestamps, no speaker labels.',
+            prompt: TRANSCRIPTION_PROMPT || 'transcribe the incoming system audio. respond with lower-case plain text, no timestamps, no speaker labels.',
             silenceFillMs: toInteger(TRANSCRIPTION_SILENCE_FILL_MS, 200),
             silenceFrameMs: toInteger(TRANSCRIPTION_SILENCE_FRAME_MS, 20)
         }
