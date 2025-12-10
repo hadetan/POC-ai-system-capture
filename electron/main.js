@@ -29,6 +29,58 @@ let transcriptionInitPromise = null;
 let transcriptionConfig = null;
 const sessionWindowMap = new Map();
 
+const normalizeFlagValue = (value) => {
+    if (value === undefined || value === null) {
+        return '';
+    }
+    return String(value).trim().toLowerCase();
+};
+
+const shouldDisableContentProtection = () => {
+    const envCandidates = [process.env.OFF, process.env.NO_CONTENT_PROTECTION];
+    for (const candidate of envCandidates) {
+        const normalized = normalizeFlagValue(candidate);
+        if (normalized && !['0', 'false', 'off', 'no'].includes(normalized)) {
+            return true;
+        }
+    }
+
+    const argvFlags = process.argv
+        .slice(1)
+        .map((arg) => normalizeFlagValue(arg));
+
+    return argvFlags.some((flag) => ['off', '--off', '--no-content-protection'].includes(flag));
+};
+
+const contentProtectionEnabledByDefault = !shouldDisableContentProtection();
+
+const applyContentProtection = (targetWindow) => {
+    if (!targetWindow?.setContentProtection) {
+        console.warn('[ContentProtection] setContentProtection is unavailable on this platform.');
+        return;
+    }
+
+    try {
+        targetWindow.setContentProtection(contentProtectionEnabledByDefault);
+        const reportedState = typeof targetWindow.isContentProtected === 'function'
+            ? targetWindow.isContentProtected()
+            : 'unknown';
+        console.log(
+            `[ContentProtection] Applied ${contentProtectionEnabledByDefault ? 'ENABLED' : 'DISABLED'} to window #${targetWindow.id} (reported: ${reportedState}).`
+        );
+    } catch (error) {
+        console.warn('[ContentProtection] Failed to set content protection on window', error);
+    }
+};
+
+console.log(
+    `[ContentProtection] Default state: ${contentProtectionEnabledByDefault ? 'ENABLED' : 'DISABLED'} (OFF flag ${contentProtectionEnabledByDefault ? 'not detected' : 'detected'}).`
+);
+
+app.on('browser-window-created', (_event, window) => {
+    applyContentProtection(window);
+});
+
 const resolveRendererEntry = () => {
     const distEntry = path.join(__dirname, '..', 'dist', 'renderer', 'index.html');
     if (fs.existsSync(distEntry)) {
