@@ -57,6 +57,7 @@ class LiveStreamingSession extends EventEmitter {
         this.audioConverter = null;
         this.chunkInfo = new Map();
         this.streamingConfig = options.streamingConfig || {};
+        this.ffmpegPath = options.ffmpegPath || null;
         this.silenceFillMs = Math.max(50, Number(this.streamingConfig.silenceFillMs) || 1000);
         this.silenceFrameMs = Math.min(500, Math.max(10, Number(this.streamingConfig.silenceFrameMs) || 100));
         this.silenceInterval = null;
@@ -169,8 +170,9 @@ class LiveStreamingSession extends EventEmitter {
         try {
             await this.client.connect();
             log('info', `Session ${this.id} Live API connected`);
-            this.audioConverter = new PersistentAudioConverter({
+            const converterOptions = {
                 mimeType: this.inputMimeType,
+                ffmpegPath: this.ffmpegPath || undefined,
                 onData: (pcmChunk, info) => {
                     if (!this.terminated && pcmChunk.length > 0) {
                         try {
@@ -209,7 +211,15 @@ class LiveStreamingSession extends EventEmitter {
                 onError: (error) => {
                     log('error', `Session ${this.id} audio converter error: ${error.message}`);
                 }
-            });
+            };
+
+            if (this.ffmpegPath) {
+                log('info', `Session ${this.id} using FFmpeg binary at ${this.ffmpegPath}`);
+            } else {
+                log('info', `Session ${this.id} using FFmpeg from system PATH`);
+            }
+
+            this.audioConverter = new PersistentAudioConverter(converterOptions);
             this.audioConverter.start();
             this.startSilenceFiller();
 
@@ -398,6 +408,7 @@ class StreamingTranscriptionService extends EventEmitter {
     constructor(config = {}) {
         super();
         this.config = config;
+        this.ffmpegPath = config?.ffmpegPath || null;
         this.sessions = new Map();
         this.ready = false;
     }
@@ -407,10 +418,13 @@ class StreamingTranscriptionService extends EventEmitter {
         if (!apiKey) {
             throw new Error('ASSEMBLYAI_API_KEY must be configured.');
         }
-
         this.ready = true;
         const cfgTs = this.config.streaming?.chunkTimesliceMs;
-        log('info', `Streaming transcription service initialized (AssemblyAI realtime) - chunkTimesliceMs=${cfgTs ?? 'unset'}`);
+        if (this.ffmpegPath) {
+            log('info', `Streaming transcription service initialized (AssemblyAI realtime) - chunkTimesliceMs=${cfgTs ?? 'unset'} ffmpeg=${this.ffmpegPath}`);
+        } else {
+            log('warn', `Streaming transcription service initialized without explicit FFmpeg path - chunkTimesliceMs=${cfgTs ?? 'unset'} (falling back to system PATH)`);
+        }
     }
 
     assertReady() {
@@ -443,7 +457,8 @@ class StreamingTranscriptionService extends EventEmitter {
             sessionId,
             sourceName: metadata.sourceName || 'unknown-source',
             client,
-            streamingConfig: this.config.streaming || {}
+            streamingConfig: this.config.streaming || {},
+            ffmpegPath: metadata.ffmpegPath || this.ffmpegPath
         });
 
         session.on('update', (payload) => {

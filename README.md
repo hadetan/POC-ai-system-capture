@@ -30,7 +30,7 @@ Need to run only the renderer or Electron entry points?
 
 ## AI Transcription (AssemblyAI)
 - Copy `.env.example` to `.env` and set `ASSEMBLYAI_API_KEY` if you want realtime streaming transcription to work. Realtime streaming will try to connect to AssemblyAI when a valid key is available.
-- Install FFmpeg on your system or provide `TRANSCRIPTION_FFMPEG_PATH` if you plan to use the offline/batch worker (the live UI does not need FFmpeg).
+- Realtime streaming now bundles FFmpeg via `@ffmpeg-installer/ffmpeg`, so no system install is required. Set `TRANSCRIPTION_FFMPEG_PATH` if you want to point both streaming and batch modes at a custom binary.
 - Realtime transcription streams PCM audio to the configured provider via a streaming client (AssemblyAI by default). If the API key is missing or invalid, the realtime service will not be available and UI will reflect that.
 - Offline / Batch transcription (`transcription/worker.js`) is a worker that accepts a path to an existing video file and writes a transcript to disk (to the transcriptsDir you configure when starting the worker). It is not invoked from the UI by default.
 

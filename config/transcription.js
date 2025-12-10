@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const { resolveFfmpegPath } = require('../utils/ffmpeg');
+
 const toInteger = (value, defaultValue) => {
     if (value === undefined || value === null || value === '') {
         return defaultValue;
@@ -17,17 +19,21 @@ module.exports = function loadTranscriptionConfig() {
         TRANSCRIPTION_MAX_CHUNK_BYTES,
         TRANSCRIPTION_PROMPT,
         TRANSCRIPTION_SILENCE_FILL_MS,
-        TRANSCRIPTION_SILENCE_FRAME_MS
+        TRANSCRIPTION_SILENCE_FRAME_MS,
+        TRANSCRIPTION_FFMPEG_PATH
     } = process.env;
 
-    const provider = (TRANSCRIPTION_PROVIDER).toLowerCase();
+    const provider = (TRANSCRIPTION_PROVIDER || 'assembly').toLowerCase();
+    const ffmpegPath = resolveFfmpegPath(TRANSCRIPTION_FFMPEG_PATH);
 
     return {
         provider,
+        ffmpegPath,
         providerConfig: {
             assembly: {
                 apiKey: ASSEMBLYAI_API_KEY || null,
-                timeoutMs: toInteger(TRANSCRIPTION_TIMEOUT_MS, 120_000)
+                timeoutMs: toInteger(TRANSCRIPTION_TIMEOUT_MS, 120_000),
+                ffmpegPath
             }
         },
         streaming: {
