@@ -246,8 +246,8 @@ const createTranscriptWindow = () => {
     }
 
     transcriptWindow = new BrowserWindow({
-        width: 420,
-        height: 280,
+        width: 1080,
+        height: 720,
         transparent: true,
         frame: false,
         skipTaskbar: stealthModeEnabled,
@@ -303,19 +303,45 @@ app.whenReady().then(() => {
     createControlWindow();
     createTranscriptWindow();
 
+    const registerShortcut = (accelerator, handler) => {
+        const ok = globalShortcut.register(accelerator, handler);
+        if (!ok) {
+            console.warn(`[Shortcut] Failed to register ${accelerator} accelerator.`);
+        } else {
+            console.log(`[Shortcut] Registered ${accelerator} accelerator.`);
+        }
+        return ok;
+    };
+
     const toggleShortcut = 'CommandOrControl+Shift+/';
-    const registered = globalShortcut.register(toggleShortcut, () => {
+    registerShortcut(toggleShortcut, () => {
         const targets = [controlWindow, transcriptWindow]
             .filter((win) => win && !win.isDestroyed());
         targets.forEach((win) => {
             win.webContents.send('control-window:toggle-capture');
         });
     });
-    if (!registered) {
-        console.warn(`[Shortcut] Failed to register ${toggleShortcut} accelerator.`);
-    } else {
-        console.log(`[Shortcut] Registered ${toggleShortcut} accelerator.`);
-    }
+
+    const scrollUpShortcut = 'CommandOrControl+Shift+Up';
+    registerShortcut(scrollUpShortcut, () => {
+        if (transcriptWindow && !transcriptWindow.isDestroyed()) {
+            transcriptWindow.webContents.send('control-window:scroll-up');
+        }
+    });
+
+    const scrollDownShortcut = 'CommandOrControl+Shift+Down';
+    registerShortcut(scrollDownShortcut, () => {
+        if (transcriptWindow && !transcriptWindow.isDestroyed()) {
+            transcriptWindow.webContents.send('control-window:scroll-down');
+        }
+    });
+
+    const clearTranscriptShortcut = 'CommandOrControl+Alt+G';
+    registerShortcut(clearTranscriptShortcut, () => {
+        if (transcriptWindow && !transcriptWindow.isDestroyed()) {
+            transcriptWindow.webContents.send('control-window:clear-transcript');
+        }
+    });
 
     screen.on('display-metrics-changed', positionOverlayWindows);
     screen.on('display-added', positionOverlayWindows);

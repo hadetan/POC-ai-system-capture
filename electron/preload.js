@@ -42,6 +42,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
             const listener = () => callback();
             ipcRenderer.on('control-window:toggle-capture', listener);
             return () => ipcRenderer.removeListener('control-window:toggle-capture', listener);
+        },
+        onScrollUp: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => {};
+            }
+            const listener = () => callback();
+            ipcRenderer.on('control-window:scroll-up', listener);
+            return () => ipcRenderer.removeListener('control-window:scroll-up', listener);
+        },
+        onScrollDown: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => {};
+            }
+            const listener = () => callback();
+            ipcRenderer.on('control-window:scroll-down', listener);
+            return () => ipcRenderer.removeListener('control-window:scroll-down', listener);
+        },
+        onClearTranscripts: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => {};
+            }
+            const listener = () => callback();
+            ipcRenderer.on('control-window:clear-transcript', listener);
+            return () => ipcRenderer.removeListener('control-window:clear-transcript', listener);
         }
     },
     transcription: {

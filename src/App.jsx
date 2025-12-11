@@ -5,6 +5,7 @@ const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const DEFAULT_MIME = 'audio/webm;codecs=opus';
 const STALL_THRESHOLD_MS = 5000;
 const STALL_WATCH_INTERVAL_MS = 1000;
+const SCROLL_STEP_PX = 140;
 
 const appendWithOverlap = (base = '', incoming = '') => {
     if (!base) return incoming || '';
@@ -125,6 +126,7 @@ function App() {
     const [isSelectingSource, setIsSelectingSource] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
     const [latencyStatus, setLatencyStatus] = useState('');
+    const [isAtBottom, setIsAtBottom] = useState(true);
 
     const windowVariant = useMemo(() => resolveWindowVariant(), []);
     const isControlWindow = windowVariant === WINDOW_VARIANTS.CONTROL;
@@ -169,6 +171,7 @@ function App() {
     const controlStopRef = useRef(null);
     const streamingStateRef = useRef(false);
     const selectingSourceRef = useRef(false);
+    const transcriptRef = useRef(null);
 
     const resetTranscriptionListener = useCallback(() => {
         if (typeof stopTranscriptionListenerRef.current === 'function') {
@@ -225,6 +228,7 @@ function App() {
         }
         localTranscriptRef.current = '';
         setTranscript('');
+        setIsAtBottom(true);
         resetLatencyWatchdog();
     }, [isControlWindow, resetLatencyWatchdog, resetTranscriptionListener]);
 
@@ -333,6 +337,7 @@ function App() {
                     setStatus('Transcription session stopped.');
                     localTranscriptRef.current = '';
                     setTranscript('');
+                    setIsAtBottom(true);
                     setIsStreaming(false);
                     streamingStateRef.current = false;
                     if (!isControlWindow) {
@@ -475,6 +480,27 @@ function App() {
         setStatus('Idle');
     }, [stopCapture]);
 
+    const scrollTranscriptBy = useCallback((delta) => {
+        const el = transcriptRef.current;
+        if (!el) {
+            return;
+        }
+        const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        const nextTop = Math.min(maxScrollTop, Math.max(0, el.scrollTop + delta));
+        el.scrollTo({ top: nextTop, behavior: 'smooth' });
+        const atBottom = nextTop >= maxScrollTop - 2;
+        setIsAtBottom(atBottom);
+    }, []);
+
+    const clearTranscript = useCallback(() => {
+        localTranscriptRef.current = '';
+        setTranscript('');
+        if (transcriptRef.current) {
+            transcriptRef.current.scrollTop = 0;
+        }
+        setIsAtBottom(true);
+    }, []);
+
     useEffect(() => {
         if (!isControlWindow) {
             return () => {};
@@ -500,6 +526,78 @@ function App() {
             }
         };
     }, [isControlWindow, startRecording, stopRecording]);
+
+    useEffect(() => {
+        if (isControlWindow) {
+            return () => {};
+        }
+        const api = electronAPI?.controlWindow;
+        if (!api) {
+            return () => {};
+        }
+        const unsubscribes = [];
+        if (typeof api.onScrollUp === 'function') {
+            unsubscribes.push(api.onScrollUp(() => {
+                scrollTranscriptBy(-SCROLL_STEP_PX);
+            }));
+        }
+        if (typeof api.onScrollDown === 'function') {
+            unsubscribes.push(api.onScrollDown(() => {
+                scrollTranscriptBy(SCROLL_STEP_PX);
+            }));
+        }
+        if (typeof api.onClearTranscripts === 'function') {
+            unsubscribes.push(api.onClearTranscripts(() => {
+                clearTranscript();
+            }));
+        }
+        return () => {
+            unsubscribes.forEach((fn) => {
+                if (typeof fn === 'function') {
+                    fn();
+                }
+            });
+        };
+    }, [clearTranscript, isControlWindow, scrollTranscriptBy]);
+
+    useEffect(() => {
+        if (isControlWindow) {
+            return () => {};
+        }
+        const el = transcriptRef.current;
+        if (!el) {
+            return () => {};
+        }
+        const handleScroll = () => {
+            const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+            setIsAtBottom(atBottom);
+        };
+        handleScroll();
+        el.addEventListener('scroll', handleScroll, { passive: true });
+        return () => {
+            el.removeEventListener('scroll', handleScroll);
+        };
+    }, [isControlWindow]);
+
+    useEffect(() => {
+        if (isControlWindow) {
+            return () => {};
+        }
+        if (!isAtBottom) {
+            return () => {};
+        }
+        const el = transcriptRef.current;
+        if (!el) {
+            return () => {};
+        }
+        const scrollToBottom = () => {
+            const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+            el.scrollTo({ top: maxScrollTop, behavior: 'auto' });
+        };
+        // defer to next frame to ensure layout is ready
+        const rafId = window.requestAnimationFrame(scrollToBottom);
+        return () => window.cancelAnimationFrame(rafId);
+    }, [isAtBottom, isControlWindow, transcript]);
 
     useEffect(() => {
         if (!isControlWindow || typeof window === 'undefined') {
@@ -549,7 +647,7 @@ function App() {
                     <span className={`state-dot ${isStreaming ? 'state-dot-live' : ''}`} aria-hidden="true" />
                     <span className="heading-chip">{isStreaming ? 'Streaming' : 'Idle'}</span>
                 </header>
-                <div className="transcript-body">
+                <div className="transcript-body" ref={transcriptRef}>
                     {transcript || 'Transcription will appear here once capture starts.'}
                 </div>
                 <footer className="transcript-meta">
