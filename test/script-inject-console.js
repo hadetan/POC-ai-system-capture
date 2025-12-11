@@ -189,7 +189,7 @@
     window.addEventListener('pagehide', onPageHide, true);
     document.addEventListener('fullscreenchange', onFullscreenChange, true);
 
-    // 1. DevTools Timing Spike Detector
+    // DevTools Timing Spike Detector
     (function devtoolsDetector() {
         let last = performance.now();
         let devtoolsOpen = false;
@@ -216,7 +216,7 @@
         setInterval(check, 100);
     })();
 
-    // 2. Rapid Resize Detector
+    // Rapid Resize Detector
     (function windowResizeDetector() {
         let resizeBurst = 0;
         let lastResize = 0;
@@ -235,7 +235,7 @@
         });
     })();
 
-    // 3. Suspicious Shortcut Detector
+    // Suspicious Shortcut Detector
     (function shortcutDetector() {
         const watched = ['F11', 'F12', 'PrintScreen', 'Alt', 'Meta'];
 
@@ -250,7 +250,7 @@
         });
     })();
 
-    // 4. Inactivity Detector
+    // Inactivity Detector
     (function inactivityDetector() {
         let lastAction = Date.now();
         let warned = false;
@@ -274,7 +274,7 @@
         }, 2000);
     })();
 
-    // 5. Clipboard Watch
+    // Clipboard Watch
     (function clipboardDetector() {
         document.addEventListener('copy', () => {
             state.leaves.push({ start: Date.now(), reason: 'copy-event' });
@@ -287,7 +287,7 @@
         });
     })();
 
-    // 6. Scroll Speed Detector
+    // Scroll Speed Detector
     (function scrollSpeedDetector() {
         let last = 0;
 
@@ -303,7 +303,7 @@
         });
     })();
 
-    // 7. Tab Switching Speed Detector
+    // Tab Switching Speed Detector
     (function tabSwitchDetector() {
         let lastSwitch = 0;
 
@@ -319,7 +319,7 @@
         });
     })();
 
-    // 8. Mouse Teleport Detector (impossible movement jumps)
+    // Mouse Teleport Detector (impossible movement jumps)
     (function mouseTeleportDetector() {
         let lastX = null, lastY = null;
 
@@ -337,7 +337,7 @@
         });
     })();
 
-    // 9. Suspicious Focus Flicker Detector
+    // Suspicious Focus Flicker Detector
     (function focusFlickerDetector() {
         let lastFocus = Date.now();
         let count = 0;
@@ -355,7 +355,7 @@
         });
     })();
 
-    // 10. Suspicious Scroll-to-Top Detector
+    // Suspicious Scroll-to-Top Detector
     (function jumpScrollDetector() {
         let lastPos = window.scrollY;
 
@@ -369,7 +369,7 @@
         });
     })();
 
-    // 11. Mouse Leave / Page Edge Exit Detector
+    // Mouse Leave / Page Edge Exit Detector
     (function mouseLeaveDetector() {
         let lastEnter = Date.now();
 
@@ -408,7 +408,7 @@
         });
     })();
 
-    // 12. WebGPU Timing Stall Detector - Detects hidden overlays or apps that hog GPU cycles.
+    // WebGPU Timing Stall Detector - Detects hidden overlays or apps that hog GPU cycles.
     (function webgpuTimingDetector() {
         if (!('gpu' in navigator)) return;
 
@@ -432,7 +432,7 @@
         requestAnimationFrame(tick);
     })();
 
-    // 13. Invisible Focus-Steal Detector - Hidden windows or AI tools sometimes pull transient focus.
+    // Invisible Focus-Steal Detector - Hidden windows or AI tools sometimes pull transient focus.
     // This detects sub-50ms focus flashes impossible for humans.
     (function ghostFocusStealDetector() {
         let last = Date.now();
@@ -448,7 +448,7 @@
         });
     })();
 
-    // 14. Memory Pressure Spike Detector - Off-screen apps that OCR the screen cause RAM pressure spikes.
+    // Memory Pressure Spike Detector - Off-screen apps that OCR the screen cause RAM pressure spikes.
     (function memoryPressureDetector() {
         if (!performance.memory) return;
 
@@ -467,8 +467,44 @@
         }, 1000);
     })();
 
+    // Hidden Window Z-Fighting Detector
+    (function zFightingDetector() {
+        let last = window.innerHeight;
 
+        setInterval(() => {
+            const h = window.innerHeight;
 
+            // 1–2px jumps are typical when OS manages a top-layer window
+            if (Math.abs(h - last) > 0 && Math.abs(h - last) < 4) {
+                state.leaves.push({ start: Date.now(), reason: 'z-fighting' });
+                console.warn('Z-index fighting detected — hidden window overlay.');
+            }
+
+            last = h;
+        }, 300);
+    })();
+
+    // OCR Text Refresh Detector
+    (function ocrRefreshDetector() {
+        let last = performance.now();
+        let spikes = 0;
+
+        setInterval(() => {
+            const t = performance.now();
+            const diff = t - last;
+            last = t;
+
+            // Periodic 5–12ms spike is classic OCR capture interval
+            if (diff >= 195 && diff <= 840) {
+                spikes++;
+                if (spikes >= 5) {
+                    state.leaves.push({ start: Date.now(), reason: 'ocr-refresh-pattern' });
+                    console.warn('OCR refresh pattern detected.');
+                    spikes = 0;
+                }
+            } else spikes = 0;
+        }, 50);
+    })();
 
     // ====================================================================================
     // EXPOSE CONTROL API
