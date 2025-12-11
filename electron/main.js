@@ -32,7 +32,7 @@ let controlWindow = null;
 let transcriptWindow = null;
 
 const WINDOW_VERTICAL_GAP = 14;
-const WINDOW_TOP_MARGIN = 70;
+const WINDOW_TOP_MARGIN = 12;
 
 const normalizeFlagValue = (value) => {
     if (value === undefined || value === null) {
