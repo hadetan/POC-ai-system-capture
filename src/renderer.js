@@ -46,8 +46,9 @@ let stopTranscriptionListener = null;
 let recordingMimeType = preferredMimeType || 'audio/webm;codecs=opus';
 let lastLatencyLabel = '';
 let lastLatencyUpdateTs = 0;
+let latencySuffixLabel = '';
 let latencyWatchdogTimer = null;
-const STALL_THRESHOLD_MS = 5000;
+const STALL_THRESHOLD_MS = 1500;
 const STALL_WATCH_INTERVAL_MS = 1000;
 let localTranscript = '';
 
@@ -225,6 +226,7 @@ const attachTranscriptionEvents = () => {
                 ensureLatencyWatchdog();
                 lastLatencyLabel = '';
                 lastLatencyUpdateTs = Date.now();
+                latencySuffixLabel = '';
                 updateStatus('Streaming transcription active.');
                 break;
             case 'update': {
@@ -238,6 +240,7 @@ const attachTranscriptionEvents = () => {
                 updateTranscript(localTranscript || '');
                 lastLatencyUpdateTs = Date.now();
                 lastLatencyLabel = `WS ${payload.latencyMs ?? '-'}ms | E2E ${payload.pipelineMs ?? '-'}ms | CONV ${payload.conversionMs ?? '-'}ms`;
+                latencySuffixLabel = '';
                 ensureLatencyWatchdog();
                 renderLatencyStatus();
                 break;
@@ -245,18 +248,38 @@ const attachTranscriptionEvents = () => {
             case 'warning':
                 console.warn('[Transcription warning]', payload);
                 resetLatencyWatchdog();
+                latencySuffixLabel = '';
                 updateStatus(`Transcription warning: ${resolveWarningMessage(payload)}`);
                 break;
             case 'error':
                 resetLatencyWatchdog();
+                latencySuffixLabel = '';
                 updateStatus(`Transcription error: ${payload.error?.message || 'Unknown error'}`);
                 break;
             case 'stopped':
                 resetLatencyWatchdog();
+                latencySuffixLabel = '';
                 updateStatus('Transcription session stopped.');
                 // clear cached transcript state when service signals stop
                 localTranscript = '';
                 break;
+            case 'heartbeat': {
+                const state = payload.state || (payload.silent ? 'silence' : 'speech');
+                if (state === 'reconnecting') {
+                    latencySuffixLabel = '(reconnecting…)';
+                } else if (state === 'reconnected') {
+                    latencySuffixLabel = '(reconnected)';
+                } else if (state === 'silence') {
+                    const duration = Math.max(0, Number(payload.silenceDurationMs) || 0);
+                    latencySuffixLabel = duration >= 1000
+                        ? `(silence ${(duration / 1000).toFixed(1)}s)`
+                        : `(silence ${Math.round(duration)}ms)`;
+                } else {
+                    latencySuffixLabel = '';
+                }
+                renderLatencyStatus();
+                break;
+            }
             default:
                 break;
         }
@@ -401,7 +424,8 @@ function ensureLatencyWatchdog() {
         const stalledFor = Date.now() - lastLatencyUpdateTs;
         if (stalledFor >= STALL_THRESHOLD_MS) {
             const seconds = Math.max(1, Math.floor(stalledFor / 1000));
-            renderLatencyStatus(`(stalled ${seconds}s)`);
+            latencySuffixLabel = `(stalled ${seconds}s)`;
+            renderLatencyStatus();
         }
     }, STALL_WATCH_INTERVAL_MS);
 }
@@ -409,14 +433,20 @@ function ensureLatencyWatchdog() {
 function resetLatencyWatchdog() {
     lastLatencyLabel = '';
     lastLatencyUpdateTs = 0;
+    latencySuffixLabel = '';
     if (latencyWatchdogTimer) {
         clearInterval(latencyWatchdogTimer);
         latencyWatchdogTimer = null;
     }
 }
 
-function renderLatencyStatus(suffix = '') {
+function renderLatencyStatus(overrideSuffix = null) {
+    const suffix = overrideSuffix ?? latencySuffixLabel;
+    if (!lastLatencyLabel && !suffix) {
+        return;
+    }
     if (!lastLatencyLabel) {
+        updateStatus((suffix || '').trim() || 'Streaming transcription active.');
         return;
     }
     const extra = suffix ? ` ${suffix}` : '';

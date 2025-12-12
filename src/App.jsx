@@ -3,7 +3,7 @@ import './App.css';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const DEFAULT_MIME = 'audio/webm;codecs=opus';
-const STALL_THRESHOLD_MS = 5000;
+const STALL_THRESHOLD_MS = 1500;
 const STALL_WATCH_INTERVAL_MS = 1000;
 const SCROLL_STEP_PX = 140;
 
@@ -180,13 +180,20 @@ function App() {
         stopTranscriptionListenerRef.current = null;
     }, []);
 
-    const updateLatencyStatus = useCallback((suffix = '') => {
-        if (!latencyLabelRef.current) {
+    const latencySuffixRef = useRef('');
+    const updateLatencyStatus = useCallback((overrideSuffix) => {
+        const suffix = typeof overrideSuffix === 'string' ? overrideSuffix : latencySuffixRef.current;
+        const base = latencyLabelRef.current;
+        if (!base && !suffix) {
             setLatencyStatus('');
             return;
         }
+        if (!base) {
+            setLatencyStatus((suffix || '').trim());
+            return;
+        }
         const extra = suffix ? ` ${suffix}` : '';
-        setLatencyStatus(`Latency ${latencyLabelRef.current}${extra}`);
+        setLatencyStatus(`Latency ${base}${extra}`);
     }, []);
 
     const resetLatencyWatchdog = useCallback(() => {
@@ -196,6 +203,7 @@ function App() {
         }
         lastLatencyTsRef.current = 0;
         latencyLabelRef.current = '';
+        latencySuffixRef.current = '';
         setLatencyStatus('');
     }, []);
 
@@ -210,7 +218,8 @@ function App() {
             const stalledFor = Date.now() - lastLatencyTsRef.current;
             if (stalledFor >= STALL_THRESHOLD_MS) {
                 const seconds = Math.max(1, Math.floor(stalledFor / 1000));
-                updateLatencyStatus(`(stalled ${seconds}s)`);
+                latencySuffixRef.current = `(stalled ${seconds}s)`;
+                updateLatencyStatus();
             }
         }, STALL_WATCH_INTERVAL_MS);
     }, [updateLatencyStatus]);
@@ -304,6 +313,7 @@ function App() {
                     ensureLatencyWatchdog();
                     lastLatencyTsRef.current = Date.now();
                     latencyLabelRef.current = '';
+                    latencySuffixRef.current = '';
                     setStatus('Streaming transcription active.');
                     setIsStreaming(true);
                     streamingStateRef.current = true;
@@ -320,20 +330,24 @@ function App() {
                     setTranscript(localTranscriptRef.current);
                     lastLatencyTsRef.current = Date.now();
                     latencyLabelRef.current = `WS ${payload.latencyMs ?? '-'}ms | E2E ${payload.pipelineMs ?? '-'}ms | CONV ${payload.conversionMs ?? '-'}ms`;
+                     latencySuffixRef.current = '';
                     ensureLatencyWatchdog();
                     updateLatencyStatus();
                     break;
                 }
                 case 'warning':
                     resetLatencyWatchdog();
+                    latencySuffixRef.current = '';
                     setStatus(`Transcription warning: ${resolveWarningMessage(payload)}`);
                     break;
                 case 'error':
                     resetLatencyWatchdog();
+                    latencySuffixRef.current = '';
                     setStatus(`Transcription error: ${payload.error?.message || 'Unknown error'}`);
                     break;
                 case 'stopped':
                     resetLatencyWatchdog();
+                    latencySuffixRef.current = '';
                     setStatus('Transcription session stopped.');
                     localTranscriptRef.current = '';
                     setTranscript('');
@@ -344,6 +358,24 @@ function App() {
                         sessionIdRef.current = null;
                     }
                     break;
+                case 'heartbeat': {
+                    const state = payload.state || (payload.silent ? 'silence' : 'speech');
+                    if (state === 'reconnecting') {
+                        latencySuffixRef.current = '(reconnecting…)';
+                    } else if (state === 'reconnected') {
+                        latencySuffixRef.current = '(reconnected)';
+                    } else if (state === 'silence') {
+                        const duration = Math.max(0, Number(payload.silenceDurationMs) || 0);
+                        const label = duration >= 1000
+                            ? `(silence ${(duration / 1000).toFixed(1)}s)`
+                            : `(silence ${Math.round(duration)}ms)`;
+                        latencySuffixRef.current = label;
+                    } else {
+                        latencySuffixRef.current = '';
+                    }
+                    updateLatencyStatus();
+                    break;
+                }
                 default:
                     break;
             }

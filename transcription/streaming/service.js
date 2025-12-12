@@ -38,6 +38,10 @@ class MockStreamingClient extends EventEmitter {
         this.connected = false;
         log('info', 'Mock client disconnected');
     }
+
+    isReady() {
+        return this.connected;
+    }
 }
 
 /**
@@ -59,7 +63,7 @@ class LiveStreamingSession extends EventEmitter {
         this.streamingConfig = options.streamingConfig || {};
         this.ffmpegPath = options.ffmpegPath || null;
         this.silenceFillMs = Math.max(50, Number(this.streamingConfig.silenceFillMs) || 1000);
-        this.silenceFrameMs = Math.min(500, Math.max(10, Number(this.streamingConfig.silenceFrameMs) || 100));
+        this.silenceFrameMs = Math.min(500, Math.max(50, Number(this.streamingConfig.silenceFrameMs) || 120));
         this.silenceInterval = null;
         this.lastSendTs = 0;
         this.lastChunkMeta = null;
@@ -72,6 +76,20 @@ class LiveStreamingSession extends EventEmitter {
         this.pcmBuffer = Buffer.alloc(0);
         this.firstChunkMeta = null;
         this.TARGET_CHUNK_SIZE = 3200; // Target chunk size: ~100ms of audio (16000Hz * 2 bytes * 0.1s = 3200 bytes)
+        this.heartbeatInterval = null;
+        this.heartbeatIntervalMs = Math.max(100, Number(this.streamingConfig.heartbeatIntervalMs) || 250);
+        this.silenceDurationMs = 0;
+        this.silenceNotifyMs = Math.max(50, Number(this.streamingConfig.silenceNotifyMs) || 600);
+        this.silenceSuppressMs = Math.max(this.silenceNotifyMs, Number(this.streamingConfig.silenceSuppressMs) || 900);
+        this.silenceEnergyThreshold = Math.max(1, Number(this.streamingConfig.silenceEnergyThreshold) || 350);
+        this.lastSpeechAt = Date.now();
+        this.lastServerUpdateAt = 0;
+        this.reconnecting = false;
+        this.reconnectAttempt = 0;
+        this.reconnectPromise = null;
+        this.reconnectBackoffMs = Math.max(200, Number(this.streamingConfig.reconnectBackoffMs) || 750);
+        this.maxReconnectAttempts = Math.max(1, Number(this.streamingConfig.maxReconnectAttempts) || 6);
+        this.latestPcmStats = null;
 
         // Listen for transcription events from the Live API client
         this.client.on('transcription', (data) => {
@@ -80,6 +98,10 @@ class LiveStreamingSession extends EventEmitter {
             if (!absoluteText) {
                 return;
             }
+            const now = Date.now();
+            this.lastServerUpdateAt = now;
+            this.lastSpeechAt = now;
+            this.silenceDurationMs = 0;
 
             const previousServer = this.lastServerTranscript || '';
             if (absoluteText === previousServer) {
@@ -126,9 +148,7 @@ class LiveStreamingSession extends EventEmitter {
                 if (breakdown) {
                     log('info', `Session ${this.id} latency breakdown total:${breakdown.total}ms cap->ipc:${breakdown.captureToIpc ?? '-'}ms ipc->svc:${breakdown.ipcToService ?? '-'}ms svc->pcm:${breakdown.serviceToConverter ?? '-'}ms pcm->ws:${breakdown.converterToWs ?? '-'}ms ws->txt:${breakdown.wsToTranscript ?? '-'}ms`);
                 }
-            } catch (err) {
-                // ignore metric computation errors
-            }
+            } catch (err) { }
             log('info', `Session ${this.id} update (${this.transcript.length} chars)`);
             this.emit('update', {
                 text: this.transcript,
@@ -159,10 +179,17 @@ class LiveStreamingSession extends EventEmitter {
             }
         });
 
-        this.client.on('disconnected', () => {
-            if (!this.terminated) {
-                log('warn', `Session ${this.id} disconnected unexpectedly`);
+        this.client.on('disconnected', (detail = {}) => {
+            if (this.terminated) {
+                return;
             }
+            log('warn', `Session ${this.id} disconnected unexpectedly (${detail.code ?? 'no-code'})`);
+            this.emit('warning', {
+                code: 'ws-disconnected',
+                message: 'Realtime streaming socket disconnected',
+                detail
+            });
+            this.scheduleReconnect();
         });
     }
 
@@ -174,38 +201,79 @@ class LiveStreamingSession extends EventEmitter {
                 mimeType: this.inputMimeType,
                 ffmpegPath: this.ffmpegPath || undefined,
                 onData: (pcmChunk, info) => {
-                    if (!this.terminated && pcmChunk.length > 0) {
-                        try {
-                            const producedAt = info?.producedAt;
-                            if (this.pcmBuffer.length === 0) {
-                                this.firstChunkMeta = this.buildChunkMeta(producedAt);
-                            }
+                    if (this.terminated || pcmChunk.length === 0) {
+                        return;
+                    }
+                    try {
+                        const producedAt = info?.producedAt;
+                        if (this.pcmBuffer.length === 0) {
+                            this.firstChunkMeta = this.buildChunkMeta(producedAt);
+                        }
 
-                            this.pcmBuffer = Buffer.concat([this.pcmBuffer, pcmChunk]);
+                        this.pcmBuffer = Buffer.concat([this.pcmBuffer, pcmChunk]);
 
-                            if (this.pcmBuffer.length >= this.TARGET_CHUNK_SIZE) {
-                                const chunkToSend = this.pcmBuffer;
-                                const metaToSend = this.firstChunkMeta;
+                        if (this.pcmBuffer.length >= this.TARGET_CHUNK_SIZE) {
+                            const chunkToSend = this.pcmBuffer;
+                            const metaToSend = this.firstChunkMeta;
 
-                                this.pcmBuffer = Buffer.alloc(0);
-                                this.firstChunkMeta = null;
+                            this.pcmBuffer = Buffer.alloc(0);
+                            this.firstChunkMeta = null;
 
-                                const conversionMs = (typeof metaToSend?.segmentProducedTs === 'number' && this.lastChunkReceivedAt)
-                                    ? Math.max(0, metaToSend.segmentProducedTs - this.lastChunkReceivedAt)
-                                    : undefined;
+                            const stats = this.analyzePcmChunk(chunkToSend);
+                            const chunkDurationMs = this.computeChunkDurationMs(chunkToSend);
+                            const wasSilent = this.silenceDurationMs >= this.silenceNotifyMs;
+                            this.latestPcmStats = { ...stats, durationMs: chunkDurationMs };
+                            const silentChunk = stats.rms < this.silenceEnergyThreshold;
 
-                                this.client.sendAudio(chunkToSend, metaToSend);
-
-                                if (typeof conversionMs === 'number') {
-                                    this.lastConversionMs = conversionMs;
-                                    if (Math.random() < 0.05) {
-                                        log('info', `Session ${this.id} conversion latency ~${conversionMs}ms`);
-                                    }
+                            if (silentChunk) {
+                                this.silenceDurationMs = Math.min(this.silenceDurationMs + chunkDurationMs, 60_000);
+                                if (!wasSilent && this.silenceDurationMs >= this.silenceNotifyMs) {
+                                    this.emitHeartbeat('silence');
+                                }
+                            } else {
+                                this.silenceDurationMs = 0;
+                                this.lastSpeechAt = Date.now();
+                                if (wasSilent) {
+                                    this.emitHeartbeat('speech');
                                 }
                             }
-                        } catch (err) {
-                            log('error', `Session ${this.id} failed to send audio: ${err.message}`);
+
+                            if (silentChunk && this.silenceDurationMs >= this.silenceSuppressMs) {
+                                if (Math.random() < 0.02) {
+                                    log('info', `Session ${this.id} suppressing ${chunkDurationMs}ms silent chunk (rms ${Math.round(stats.rms)})`);
+                                }
+                                return;
+                            }
+
+                            const conversionMs = (typeof metaToSend?.segmentProducedTs === 'number' && this.lastChunkReceivedAt)
+                                ? Math.max(0, metaToSend.segmentProducedTs - this.lastChunkReceivedAt)
+                                : undefined;
+
+                            if (typeof this.client.isReady === 'function' && !this.client.isReady()) {
+                                if (!this.reconnecting) {
+                                    this.scheduleReconnect();
+                                }
+                                return;
+                            }
+
+                            const sent = this.client.sendAudio(chunkToSend, metaToSend);
+                            if (!sent) {
+                                log('warn', `Session ${this.id} failed to enqueue PCM chunk (socket not ready)`);
+                                if (!this.reconnecting) {
+                                    this.scheduleReconnect();
+                                }
+                                return;
+                            }
+
+                            if (typeof conversionMs === 'number') {
+                                this.lastConversionMs = conversionMs;
+                                if (Math.random() < 0.05) {
+                                    log('info', `Session ${this.id} conversion latency ~${conversionMs}ms`);
+                                }
+                            }
                         }
+                    } catch (err) {
+                        log('error', `Session ${this.id} failed to process audio: ${err.message}`);
                     }
                 },
                 onError: (error) => {
@@ -221,6 +289,7 @@ class LiveStreamingSession extends EventEmitter {
 
             this.audioConverter = new PersistentAudioConverter(converterOptions);
             this.audioConverter.start();
+            this.startHeartbeat();
             this.startSilenceFiller();
 
         } catch (error) {
@@ -275,6 +344,15 @@ class LiveStreamingSession extends EventEmitter {
 
     async stop() {
         this.terminated = true;
+        this.stopHeartbeat();
+        this.reconnecting = false;
+
+        if (this.reconnectPromise) {
+            try {
+                await this.reconnectPromise;
+            } catch (_err) { }
+            this.reconnectPromise = null;
+        }
 
         if (this.audioConverter) {
             this.audioConverter.stop();
@@ -351,7 +429,10 @@ class LiveStreamingSession extends EventEmitter {
             this.lastSendTs = Date.now();
         }
         this.silenceInterval = setInterval(() => {
-            if (this.terminated || !this.client.isReady()) {
+            if (this.terminated || this.reconnecting) {
+                return;
+            }
+            if (typeof this.client.isReady === 'function' && !this.client.isReady()) {
                 return;
             }
             const now = Date.now();
@@ -402,6 +483,117 @@ class LiveStreamingSession extends EventEmitter {
         }
         return this.silenceFrameBuffer;
     }
+
+    startHeartbeat() {
+        if (this.heartbeatInterval) {
+            return;
+        }
+        this.heartbeatInterval = setInterval(() => {
+            if (this.terminated) {
+                return;
+            }
+            this.emitHeartbeat();
+        }, this.heartbeatIntervalMs);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+    }
+
+    emitHeartbeat(stateOverride) {
+        const now = Date.now();
+        const state = stateOverride
+            || (this.reconnecting ? 'reconnecting' : (this.silenceDurationMs >= this.silenceNotifyMs ? 'silence' : 'speech'));
+        this.emit('heartbeat', {
+            sessionId: this.id,
+            sourceName: this.sourceName,
+            state,
+            silent: state === 'silence',
+            reconnecting: state === 'reconnecting' || this.reconnecting,
+            silenceDurationMs: this.silenceDurationMs,
+            lastSpeechAt: this.lastSpeechAt || null,
+            lastTranscriptAt: this.lastServerUpdateAt || null,
+            timestamp: now,
+            pcmRms: this.latestPcmStats?.rms ?? null,
+            pcmPeak: this.latestPcmStats?.peak ?? null
+        });
+    }
+
+    scheduleReconnect() {
+        if (this.reconnecting || this.terminated) {
+            return;
+        }
+        this.reconnecting = true;
+        this.reconnectAttempt = 0;
+        const attemptReconnect = async () => {
+            while (!this.terminated) {
+                this.reconnectAttempt += 1;
+                const attempt = this.reconnectAttempt;
+                const delay = Math.min(5000, this.reconnectBackoffMs * Math.max(0, attempt - 1));
+                if (delay > 0) {
+                    await sleep(delay);
+                }
+                try {
+                    await this.client.connect();
+                    this.reconnecting = false;
+                    this.reconnectAttempt = 0;
+                    this.lastSendTs = Date.now();
+                    this.emitHeartbeat('reconnected');
+                    log('info', `Session ${this.id} reconnected after ${attempt} attempt(s)`);
+                    return;
+                } catch (error) {
+                    log('warn', `Session ${this.id} reconnect attempt ${attempt} failed: ${error.message}`);
+                    if (attempt >= this.maxReconnectAttempts) {
+                        throw error;
+                    }
+                }
+            }
+        };
+
+        this.reconnectPromise = attemptReconnect()
+            .catch((error) => {
+                if (this.terminated) {
+                    return;
+                }
+                this.reconnecting = false;
+                this.emit('error', new Error(`Realtime streaming client failed to reconnect: ${error.message}`));
+            })
+            .finally(() => {
+                if (!this.terminated) {
+                    this.reconnecting = false;
+                }
+                this.reconnectPromise = null;
+            });
+    }
+
+    analyzePcmChunk(buffer) {
+        if (!Buffer.isBuffer(buffer) || buffer.length < 2) {
+            return { rms: 0, peak: 0 };
+        }
+        let peak = 0;
+        let sumSquares = 0;
+        let samples = 0;
+        for (let i = 0; i < buffer.length - 1; i += 2) {
+            const sample = buffer.readInt16LE(i);
+            samples += 1;
+            const abs = Math.abs(sample);
+            peak = abs > peak ? abs : peak;
+            sumSquares += sample * sample;
+        }
+        const rms = Math.sqrt(sumSquares / Math.max(1, samples));
+        return { rms, peak };
+    }
+
+    computeChunkDurationMs(buffer) {
+        if (!Buffer.isBuffer(buffer) || buffer.length < 2) {
+            return 0;
+        }
+        const samples = Math.floor(buffer.length / 2);
+        return Math.max(1, Math.round((samples / 16000) * 1000));
+    }
 }
 
 class StreamingTranscriptionService extends EventEmitter {
@@ -440,7 +632,7 @@ class StreamingTranscriptionService extends EventEmitter {
 
         return new AssemblyLiveClient({
             apiKey: this.config.providerConfig?.assembly?.apiKey,
-            streamingParams: {}
+            streamingParams: this.config.streaming?.assemblyParams || {}
         });
     }
 
@@ -490,6 +682,14 @@ class StreamingTranscriptionService extends EventEmitter {
                 sessionId,
                 sourceName: session.sourceName,
                 warning: payload
+            });
+        });
+
+        session.on('heartbeat', (payload = {}) => {
+            this.emit('session-heartbeat', {
+                sessionId,
+                sourceName: session.sourceName,
+                ...payload
             });
         });
 
