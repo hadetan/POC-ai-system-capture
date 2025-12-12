@@ -47,10 +47,16 @@ let recordingMimeType = preferredMimeType || 'audio/webm;codecs=opus';
 let lastLatencyLabel = '';
 let lastLatencyUpdateTs = 0;
 let latencySuffixLabel = '';
+let latencySuffixReason = '';
 let latencyWatchdogTimer = null;
 const STALL_THRESHOLD_MS = 1500;
 const STALL_WATCH_INTERVAL_MS = 1000;
 let localTranscript = '';
+
+function formatStalledLabel(durationMs) {
+    const seconds = Math.max(1, Math.round(Math.max(0, durationMs) / 1000));
+    return `(stalled ${seconds}s)`;
+}
 
 function appendWithOverlap(base, incoming) {
     if (!base) return incoming || '';
@@ -98,6 +104,9 @@ function appendWithOverlap(base, incoming) {
     const lastSpaceIdx = base.lastIndexOf(' ');
     const lastToken = lastSpaceIdx >= 0 ? base.slice(lastSpaceIdx + 1) : base;
     const incomingFirstToken = incomingTrimLeft.split(/\s+/)[0] || '';
+    const isBaseWordy = /^[A-Za-z0-9]+$/.test(lastToken);
+    const isIncomingWordy = /^[A-Za-z0-9]+$/.test(incomingFirstToken);
+    const needsForcedSeparator = isBaseWordy && isIncomingWordy && !isIncomingPunctuation;
 
     // If base has a space (the last token is preceded by a space), and that
     // last token is reasonably long (>2), assume it's a full word and we should
@@ -110,6 +119,9 @@ function appendWithOverlap(base, incoming) {
         if (lastToken.length > 2 && incomingFirstToken.length > 0) {
             return base + ' ' + incomingTrimLeft;
         }
+        if (needsForcedSeparator) {
+            return base + ' ' + incomingTrimLeft;
+        }
         // short token (likely a fragment) — fall through: avoid inserting a space
         return base + incoming;
     }
@@ -117,6 +129,10 @@ function appendWithOverlap(base, incoming) {
     // No spaces in base (single token so far). If base token length is large,
     // it's likely a whole word and the incoming token should be separated.
     if (lastToken.length > 3 && incomingFirstToken.length > 1) {
+        return base + ' ' + incomingTrimLeft;
+    }
+
+    if (needsForcedSeparator) {
         return base + ' ' + incomingTrimLeft;
     }
 
@@ -241,6 +257,7 @@ const attachTranscriptionEvents = () => {
                 lastLatencyUpdateTs = Date.now();
                 lastLatencyLabel = `WS ${payload.latencyMs ?? '-'}ms | E2E ${payload.pipelineMs ?? '-'}ms | CONV ${payload.conversionMs ?? '-'}ms`;
                 latencySuffixLabel = '';
+                latencySuffixReason = '';
                 ensureLatencyWatchdog();
                 renderLatencyStatus();
                 break;
@@ -249,16 +266,19 @@ const attachTranscriptionEvents = () => {
                 console.warn('[Transcription warning]', payload);
                 resetLatencyWatchdog();
                 latencySuffixLabel = '';
+                latencySuffixReason = '';
                 updateStatus(`Transcription warning: ${resolveWarningMessage(payload)}`);
                 break;
             case 'error':
                 resetLatencyWatchdog();
                 latencySuffixLabel = '';
+                latencySuffixReason = '';
                 updateStatus(`Transcription error: ${payload.error?.message || 'Unknown error'}`);
                 break;
             case 'stopped':
                 resetLatencyWatchdog();
                 latencySuffixLabel = '';
+                latencySuffixReason = '';
                 updateStatus('Transcription session stopped.');
                 // clear cached transcript state when service signals stop
                 localTranscript = '';
@@ -267,15 +287,24 @@ const attachTranscriptionEvents = () => {
                 const state = payload.state || (payload.silent ? 'silence' : 'speech');
                 if (state === 'reconnecting') {
                     latencySuffixLabel = '(reconnecting…)';
+                    latencySuffixReason = 'reconnecting';
                 } else if (state === 'reconnected') {
                     latencySuffixLabel = '(reconnected)';
+                    latencySuffixReason = 'reconnected';
                 } else if (state === 'silence') {
                     const duration = Math.max(0, Number(payload.silenceDurationMs) || 0);
-                    latencySuffixLabel = duration >= 1000
-                        ? `(silence ${(duration / 1000).toFixed(1)}s)`
-                        : `(silence ${Math.round(duration)}ms)`;
+                    latencySuffixLabel = formatStalledLabel(duration);
+                    latencySuffixReason = 'heartbeat-silence';
+                } else if (state === 'speech') {
+                    if (latencySuffixReason === 'heartbeat-silence') {
+                        latencySuffixLabel = '';
+                        latencySuffixReason = '';
+                    }
                 } else {
-                    latencySuffixLabel = '';
+                    if (latencySuffixReason !== 'stall') {
+                        latencySuffixLabel = '';
+                        latencySuffixReason = '';
+                    }
                 }
                 renderLatencyStatus();
                 break;
@@ -422,9 +451,9 @@ function ensureLatencyWatchdog() {
             return;
         }
         const stalledFor = Date.now() - lastLatencyUpdateTs;
-        if (stalledFor >= STALL_THRESHOLD_MS) {
-            const seconds = Math.max(1, Math.floor(stalledFor / 1000));
-            latencySuffixLabel = `(stalled ${seconds}s)`;
+        if (stalledFor >= STALL_THRESHOLD_MS && latencySuffixReason !== 'heartbeat-silence') {
+            latencySuffixLabel = formatStalledLabel(stalledFor);
+            latencySuffixReason = 'stall';
             renderLatencyStatus();
         }
     }, STALL_WATCH_INTERVAL_MS);
@@ -434,6 +463,7 @@ function resetLatencyWatchdog() {
     lastLatencyLabel = '';
     lastLatencyUpdateTs = 0;
     latencySuffixLabel = '';
+    latencySuffixReason = '';
     if (latencyWatchdogTimer) {
         clearInterval(latencyWatchdogTimer);
         latencyWatchdogTimer = null;

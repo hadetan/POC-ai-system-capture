@@ -81,6 +81,7 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "@echogarden/fvad-wasm": "^0.2.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "dotenv": "^16.4.5",
     "fluent-ffmpeg": "^2.1.2",

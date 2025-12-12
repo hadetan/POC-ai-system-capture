@@ -34,6 +34,9 @@ const appendWithOverlap = (base = '', incoming = '') => {
     const lastSpaceIdx = base.lastIndexOf(' ');
     const lastToken = lastSpaceIdx >= 0 ? base.slice(lastSpaceIdx + 1) : base;
     const incomingFirstToken = incomingTrimLeft.split(/\s+/)[0] || '';
+    const isBaseWordy = /^[A-Za-z0-9]+$/.test(lastToken);
+    const isIncomingWordy = /^[A-Za-z0-9]+$/.test(incomingFirstToken);
+    const needsForcedSeparator = isBaseWordy && isIncomingWordy && !isIncomingPunctuation;
     if (lastSpaceIdx >= 0) {
         if (isIncomingPunctuation) {
             return base + incomingTrimLeft;
@@ -43,15 +46,21 @@ const appendWithOverlap = (base = '', incoming = '') => {
         }
         return base + incoming;
     }
-    if (lastToken.length > 3 && incomingFirstToken.length > 1) {
+        if (lastToken.length > 2 && incomingFirstToken.length > 0) {
         return base + ' ' + incomingTrimLeft;
     }
+        if (needsForcedSeparator) {
+            return base + ' ' + incomingTrimLeft;
+        }
     return base + incoming;
 };
 
 const resolvePreferredMimeType = () => {
     if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
         return '';
+    if (needsForcedSeparator) {
+        return base + ' ' + incomingTrimLeft;
+    }
     }
     if (typeof window.MediaRecorder.isTypeSupported !== 'function') {
         return '';
@@ -181,6 +190,11 @@ function App() {
     }, []);
 
     const latencySuffixRef = useRef('');
+    const latencySuffixReasonRef = useRef('');
+    const formatStalledLabel = useCallback((durationMs) => {
+        const seconds = Math.max(1, Math.round(Math.max(0, durationMs) / 1000));
+        return `(stalled ${seconds}s)`;
+    }, []);
     const updateLatencyStatus = useCallback((overrideSuffix) => {
         const suffix = typeof overrideSuffix === 'string' ? overrideSuffix : latencySuffixRef.current;
         const base = latencyLabelRef.current;
@@ -204,6 +218,7 @@ function App() {
         lastLatencyTsRef.current = 0;
         latencyLabelRef.current = '';
         latencySuffixRef.current = '';
+        latencySuffixReasonRef.current = '';
         setLatencyStatus('');
     }, []);
 
@@ -216,13 +231,13 @@ function App() {
                 return;
             }
             const stalledFor = Date.now() - lastLatencyTsRef.current;
-            if (stalledFor >= STALL_THRESHOLD_MS) {
-                const seconds = Math.max(1, Math.floor(stalledFor / 1000));
-                latencySuffixRef.current = `(stalled ${seconds}s)`;
+            if (stalledFor >= STALL_THRESHOLD_MS && latencySuffixReasonRef.current !== 'heartbeat-silence') {
+                latencySuffixRef.current = formatStalledLabel(stalledFor);
+                latencySuffixReasonRef.current = 'stall';
                 updateLatencyStatus();
             }
         }, STALL_WATCH_INTERVAL_MS);
-    }, [updateLatencyStatus]);
+    }, [formatStalledLabel, updateLatencyStatus]);
 
     const teardownSession = useCallback(async () => {
         resetTranscriptionListener();
@@ -330,7 +345,8 @@ function App() {
                     setTranscript(localTranscriptRef.current);
                     lastLatencyTsRef.current = Date.now();
                     latencyLabelRef.current = `WS ${payload.latencyMs ?? '-'}ms | E2E ${payload.pipelineMs ?? '-'}ms | CONV ${payload.conversionMs ?? '-'}ms`;
-                     latencySuffixRef.current = '';
+                    latencySuffixRef.current = '';
+                    latencySuffixReasonRef.current = '';
                     ensureLatencyWatchdog();
                     updateLatencyStatus();
                     break;
@@ -338,16 +354,19 @@ function App() {
                 case 'warning':
                     resetLatencyWatchdog();
                     latencySuffixRef.current = '';
+                    latencySuffixReasonRef.current = '';
                     setStatus(`Transcription warning: ${resolveWarningMessage(payload)}`);
                     break;
                 case 'error':
                     resetLatencyWatchdog();
                     latencySuffixRef.current = '';
+                    latencySuffixReasonRef.current = '';
                     setStatus(`Transcription error: ${payload.error?.message || 'Unknown error'}`);
                     break;
                 case 'stopped':
                     resetLatencyWatchdog();
                     latencySuffixRef.current = '';
+                    latencySuffixReasonRef.current = '';
                     setStatus('Transcription session stopped.');
                     localTranscriptRef.current = '';
                     setTranscript('');
@@ -362,16 +381,24 @@ function App() {
                     const state = payload.state || (payload.silent ? 'silence' : 'speech');
                     if (state === 'reconnecting') {
                         latencySuffixRef.current = '(reconnecting…)';
+                        latencySuffixReasonRef.current = 'reconnecting';
                     } else if (state === 'reconnected') {
                         latencySuffixRef.current = '(reconnected)';
+                        latencySuffixReasonRef.current = 'reconnected';
                     } else if (state === 'silence') {
                         const duration = Math.max(0, Number(payload.silenceDurationMs) || 0);
-                        const label = duration >= 1000
-                            ? `(silence ${(duration / 1000).toFixed(1)}s)`
-                            : `(silence ${Math.round(duration)}ms)`;
-                        latencySuffixRef.current = label;
+                        latencySuffixRef.current = formatStalledLabel(duration);
+                        latencySuffixReasonRef.current = 'heartbeat-silence';
+                    } else if (state === 'speech') {
+                        if (latencySuffixReasonRef.current === 'heartbeat-silence') {
+                            latencySuffixRef.current = '';
+                            latencySuffixReasonRef.current = '';
+                        }
                     } else {
-                        latencySuffixRef.current = '';
+                        if (latencySuffixReasonRef.current !== 'stall') {
+                            latencySuffixRef.current = '';
+                            latencySuffixReasonRef.current = '';
+                        }
                     }
                     updateLatencyStatus();
                     break;
@@ -380,7 +407,7 @@ function App() {
                     break;
             }
         });
-    }, [ensureLatencyWatchdog, isControlWindow, resetLatencyWatchdog, resetTranscriptionListener, updateLatencyStatus]);
+    }, [ensureLatencyWatchdog, formatStalledLabel, isControlWindow, resetLatencyWatchdog, resetTranscriptionListener, updateLatencyStatus]);
 
     useEffect(() => {
         if (isControlWindow) {

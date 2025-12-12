@@ -2,12 +2,20 @@ const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { AssemblyLiveClient } = require('./providers/assembly-client');
 const { PersistentAudioConverter } = require('./audio-converter');
+const { createVadInstance } = require('./vad');
 
 const LOG_PREFIX = '[Transcription:Streaming]';
 const log = (level, message, ...args) => {
     const stamp = new Date().toISOString();
     const logger = console[level] || console.log;
     logger(`${LOG_PREFIX} ${stamp} ${message}`, ...args);
+};
+
+const clampNumber = (value, min, max) => {
+    if (!Number.isFinite(value)) {
+        return min;
+    }
+    return Math.min(max, Math.max(min, value));
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,6 +98,21 @@ class LiveStreamingSession extends EventEmitter {
         this.reconnectBackoffMs = Math.max(200, Number(this.streamingConfig.reconnectBackoffMs) || 750);
         this.maxReconnectAttempts = Math.max(1, Number(this.streamingConfig.maxReconnectAttempts) || 6);
         this.latestPcmStats = null;
+        const vadCfg = this.streamingConfig.vad || {};
+        this.vadConfig = {
+            enabled: Boolean(vadCfg.enabled),
+            frameMs: vadCfg.frameMs || 30,
+            aggressiveness: clampNumber(vadCfg.aggressiveness ?? 2, 0, 3),
+            minSpeechRatio: clampNumber(typeof vadCfg.minSpeechRatio === 'number' ? vadCfg.minSpeechRatio : 0.2, 0.01, 1),
+            speechHoldMs: Math.max(0, vadCfg.speechHoldMs ?? 300),
+            silenceHoldMs: Math.max(0, vadCfg.silenceHoldMs ?? 200),
+            fillerHoldMs: Math.max(0, vadCfg.fillerHoldMs ?? 600)
+        };
+        this.vadInstance = null;
+        this.vadLastSpeechTs = 0;
+        this.vadSilenceAccumMs = 0;
+        this.vadFillerSuppressed = false;
+        this.latestVadStats = null;
 
         // Listen for transcription events from the Live API client
         this.client.on('transcription', (data) => {
@@ -197,6 +220,7 @@ class LiveStreamingSession extends EventEmitter {
         try {
             await this.client.connect();
             log('info', `Session ${this.id} Live API connected`);
+            await this.initializeVad();
             const converterOptions = {
                 mimeType: this.inputMimeType,
                 ffmpegPath: this.ffmpegPath || undefined,
@@ -223,9 +247,22 @@ class LiveStreamingSession extends EventEmitter {
                             const chunkDurationMs = this.computeChunkDurationMs(chunkToSend);
                             const wasSilent = this.silenceDurationMs >= this.silenceNotifyMs;
                             this.latestPcmStats = { ...stats, durationMs: chunkDurationMs };
-                            const silentChunk = stats.rms < this.silenceEnergyThreshold;
+                            const rmsSpeech = stats.rms >= this.silenceEnergyThreshold;
 
-                            if (silentChunk) {
+                            let shouldSend = true;
+                            let treatAsSpeech = rmsSpeech;
+                            if (this.vadInstance && this.vadConfig.enabled) {
+                                const vadStats = this.evaluateVadDecision(chunkToSend, chunkDurationMs, rmsSpeech);
+                                this.latestVadStats = vadStats;
+                                shouldSend = vadStats.shouldSend;
+                                treatAsSpeech = vadStats.audioSpeech || vadStats.holdActive;
+                            } else {
+                                this.latestVadStats = null;
+                                this.vadFillerSuppressed = false;
+                                this.vadSilenceAccumMs = 0;
+                            }
+
+                            if (!treatAsSpeech) {
                                 this.silenceDurationMs = Math.min(this.silenceDurationMs + chunkDurationMs, 60_000);
                                 if (!wasSilent && this.silenceDurationMs >= this.silenceNotifyMs) {
                                     this.emitHeartbeat('silence');
@@ -238,9 +275,16 @@ class LiveStreamingSession extends EventEmitter {
                                 }
                             }
 
-                            if (silentChunk && this.silenceDurationMs >= this.silenceSuppressMs) {
+                            if (!this.vadInstance && !treatAsSpeech && this.silenceDurationMs >= this.silenceSuppressMs) {
                                 if (Math.random() < 0.02) {
                                     log('info', `Session ${this.id} suppressing ${chunkDurationMs}ms silent chunk (rms ${Math.round(stats.rms)})`);
+                                }
+                                return;
+                            }
+
+                            if (!shouldSend) {
+                                if (Math.random() < 0.02) {
+                                    log('info', `Session ${this.id} VAD suppressed ${chunkDurationMs}ms chunk (rms ${Math.round(stats.rms)})`);
                                 }
                                 return;
                             }
@@ -359,6 +403,8 @@ class LiveStreamingSession extends EventEmitter {
             this.audioConverter = null;
         }
 
+        this.teardownVad();
+
         // Flush any remaining audio in the buffer
         if (this.pcmBuffer && this.pcmBuffer.length > 0) {
             try {
@@ -420,6 +466,94 @@ class LiveStreamingSession extends EventEmitter {
         };
     }
 
+    async initializeVad() {
+        if (!this.vadConfig.enabled || this.vadInstance) {
+            return;
+        }
+        try {
+            this.vadInstance = await createVadInstance({
+                sampleRate: 16000,
+                frameMs: this.vadConfig.frameMs,
+                aggressiveness: this.vadConfig.aggressiveness
+            });
+            this.vadLastSpeechTs = 0;
+            this.vadSilenceAccumMs = 0;
+            this.vadFillerSuppressed = false;
+            log('info', `Session ${this.id} VAD ready (frame ${this.vadConfig.frameMs}ms, mode ${this.vadConfig.aggressiveness})`);
+        } catch (error) {
+            this.vadInstance = null;
+            this.vadConfig.enabled = false;
+            log('warn', `Session ${this.id} VAD disabled: ${error.message}`);
+        }
+    }
+
+    teardownVad() {
+        if (this.vadInstance) {
+            try {
+                this.vadInstance.dispose();
+            } catch (error) {
+                log('warn', `Session ${this.id} VAD dispose failed: ${error.message}`);
+            }
+        }
+        this.vadInstance = null;
+        this.latestVadStats = null;
+        this.vadLastSpeechTs = 0;
+        this.vadSilenceAccumMs = 0;
+        this.vadFillerSuppressed = false;
+    }
+
+    evaluateVadDecision(buffer, chunkDurationMs, fallbackSpeech) {
+        if (!this.vadInstance) {
+            return {
+                shouldSend: fallbackSpeech,
+                audioSpeech: fallbackSpeech,
+                holdActive: false,
+                speechRatio: null,
+                frameCount: 0,
+                speechFrames: 0,
+                silenceAccumMs: this.vadSilenceAccumMs
+            };
+        }
+
+        const stats = this.vadInstance.analyze(buffer);
+        const now = Date.now();
+        const hasFrames = stats.frameCount > 0;
+        const audioSpeech = hasFrames
+            ? stats.speechRatio >= this.vadConfig.minSpeechRatio
+            : fallbackSpeech;
+
+        if (audioSpeech) {
+            this.vadLastSpeechTs = now;
+            this.vadSilenceAccumMs = 0;
+        } else {
+            this.vadSilenceAccumMs = Math.min(60_000, this.vadSilenceAccumMs + chunkDurationMs);
+        }
+
+        const holdActive = Boolean(
+            this.vadConfig.speechHoldMs > 0
+            && this.vadLastSpeechTs
+            && (now - this.vadLastSpeechTs) <= this.vadConfig.speechHoldMs
+        );
+
+        let shouldSend = audioSpeech || holdActive;
+        if (!shouldSend && this.vadSilenceAccumMs < this.vadConfig.silenceHoldMs) {
+            shouldSend = true;
+        }
+
+        this.vadFillerSuppressed = this.vadConfig.fillerHoldMs > 0
+            && this.vadSilenceAccumMs >= this.vadConfig.fillerHoldMs;
+
+        return {
+            shouldSend,
+            audioSpeech,
+            holdActive,
+            speechRatio: stats.speechRatio,
+            frameCount: stats.frameCount,
+            speechFrames: stats.speechFrames,
+            silenceAccumMs: this.vadSilenceAccumMs
+        };
+    }
+
     startSilenceFiller() {
         if (this.silenceInterval || this.silenceFillMs <= 0) {
             return;
@@ -441,6 +575,9 @@ class LiveStreamingSession extends EventEmitter {
             }
             const lastSend = this.lastSendTs || this.lastChunkReceivedAt || now;
             if ((now - lastSend) < this.silenceFillMs) {
+                return;
+            }
+            if (this.vadConfig?.enabled && this.vadFillerSuppressed) {
                 return;
             }
             const buffer = this.buildSilenceFrame();
@@ -518,7 +655,9 @@ class LiveStreamingSession extends EventEmitter {
             lastTranscriptAt: this.lastServerUpdateAt || null,
             timestamp: now,
             pcmRms: this.latestPcmStats?.rms ?? null,
-            pcmPeak: this.latestPcmStats?.peak ?? null
+            pcmPeak: this.latestPcmStats?.peak ?? null,
+            vadSpeechRatio: this.latestVadStats?.speechRatio ?? null,
+            vadFrames: this.latestVadStats?.frameCount ?? null
         });
     }
 
