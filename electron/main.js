@@ -33,6 +33,7 @@ let transcriptWindow = null;
 
 const WINDOW_VERTICAL_GAP = 14;
 const WINDOW_TOP_MARGIN = 12;
+const MOVE_STEP_PX = 50;
 
 const normalizeFlagValue = (value) => {
     if (value === undefined || value === null) {
@@ -128,6 +129,102 @@ const loadRendererForWindow = (targetWindow, windowVariant) => {
     }
 
     targetWindow.loadFile(resolveRendererEntry(), { query: { window: windowVariant } });
+};
+
+const resolveWorkArea = (bounds) => {
+    const display = bounds ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay();
+    const targetDisplay = display || screen.getPrimaryDisplay();
+    const raw = targetDisplay?.workArea || targetDisplay?.bounds;
+    const width = raw?.width ?? targetDisplay?.workAreaSize?.width ?? targetDisplay?.size?.width ?? 0;
+    const height = raw?.height ?? targetDisplay?.workAreaSize?.height ?? targetDisplay?.size?.height ?? 0;
+    const x = raw?.x ?? 0;
+    const y = raw?.y ?? 0;
+    return { x, y, width, height };
+};
+
+const clampOverlaysWithinArea = (targets, workArea) => {
+    const rects = targets.filter(Boolean);
+    if (!rects.length || !workArea?.width || !workArea?.height) {
+        return targets;
+    }
+
+    const minX = Math.min(...rects.map((r) => r.x));
+    const minY = Math.min(...rects.map((r) => r.y));
+    const maxX = Math.max(...rects.map((r) => r.x + r.width));
+    const maxY = Math.max(...rects.map((r) => r.y + r.height));
+
+    const group = {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY
+    };
+
+    const areaRight = workArea.x + workArea.width;
+    const areaBottom = workArea.y + workArea.height;
+
+    let deltaX = 0;
+    let deltaY = 0;
+
+    if (group.x < workArea.x) {
+        deltaX = workArea.x - group.x;
+    } else if (group.x + group.width > areaRight) {
+        deltaX = areaRight - (group.x + group.width);
+    }
+
+    if (group.y < workArea.y) {
+        deltaY = workArea.y - group.y;
+    } else if (group.y + group.height > areaBottom) {
+        deltaY = areaBottom - (group.y + group.height);
+    }
+
+    if (!deltaX && !deltaY) {
+        return targets;
+    }
+
+    return targets.map((rect) => (rect ? { ...rect, x: rect.x + deltaX, y: rect.y + deltaY } : rect));
+};
+
+const moveOverlaysBy = (dx, dy) => {
+    const controlAlive = controlWindow && !controlWindow.isDestroyed();
+    const transcriptAlive = transcriptWindow && !transcriptWindow.isDestroyed();
+
+    if (!controlAlive && !transcriptAlive) {
+        return;
+    }
+
+    const controlBounds = controlAlive ? controlWindow.getBounds() : null;
+    const transcriptBounds = transcriptAlive ? transcriptWindow.getBounds() : null;
+
+    let nextTranscript = transcriptBounds ? {
+        ...transcriptBounds,
+        x: transcriptBounds.x + dx,
+        y: transcriptBounds.y + dy
+    } : null;
+
+    let nextControl = null;
+
+    if (controlBounds) {
+        if (nextTranscript) {
+            const centeredX = nextTranscript.x + Math.round((nextTranscript.width - controlBounds.width) / 2);
+            const centeredY = nextTranscript.y - (controlBounds.height + WINDOW_VERTICAL_GAP);
+            nextControl = { ...controlBounds, x: centeredX, y: centeredY };
+        } else {
+            nextControl = { ...controlBounds, x: controlBounds.x + dx, y: controlBounds.y + dy };
+        }
+    }
+
+    const anchor = nextTranscript || nextControl || transcriptBounds || controlBounds;
+    const workArea = resolveWorkArea(anchor);
+    const [clampedControl, clampedTranscript] = clampOverlaysWithinArea([nextControl, nextTranscript], workArea);
+
+    if (controlAlive && clampedControl) {
+        controlWindow.setPosition(clampedControl.x, clampedControl.y);
+    }
+
+    if (transcriptAlive && clampedTranscript) {
+        transcriptWindow.setPosition(clampedTranscript.x, clampedTranscript.y);
+    }
 };
 
 const positionOverlayWindows = () => {
@@ -313,6 +410,7 @@ app.whenReady().then(() => {
         return ok;
     };
 
+    // Controller commands registry
     const toggleShortcut = 'CommandOrControl+Shift+/';
     registerShortcut(toggleShortcut, () => {
         const targets = [controlWindow, transcriptWindow]
@@ -342,6 +440,18 @@ app.whenReady().then(() => {
             transcriptWindow.webContents.send('control-window:clear-transcript');
         }
     });
+
+    const moveLeft = 'CommandOrControl+Left';
+    registerShortcut(moveLeft, () => moveOverlaysBy(-MOVE_STEP_PX, 0));
+
+    const moveRight = 'CommandOrControl+Right';
+    registerShortcut(moveRight, () => moveOverlaysBy(MOVE_STEP_PX, 0));
+
+    const moveUp = 'CommandOrControl+Up';
+    registerShortcut(moveUp, () => moveOverlaysBy(0, -MOVE_STEP_PX));
+
+    const moveDown = 'CommandOrControl+Down';
+    registerShortcut(moveDown, () => moveOverlaysBy(0, MOVE_STEP_PX));
 
     screen.on('display-metrics-changed', positionOverlayWindows);
     screen.on('display-added', positionOverlayWindows);
@@ -430,6 +540,32 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
     globalShortcut.unregisterAll();
 });
+
+ipcMain.on('overlay:move-direction', (_event, payload = {}) => {
+    const direction = typeof payload.direction === 'string' ? payload.direction.toLowerCase() : '';
+    let dx = 0;
+    let dy = 0;
+
+    switch (direction) {
+        case 'left':
+            dx = -MOVE_STEP_PX;
+            break;
+        case 'right':
+            dx = MOVE_STEP_PX;
+            break;
+        case 'up':
+            dy = -MOVE_STEP_PX;
+            break;
+        case 'down':
+            dy = MOVE_STEP_PX;
+            break;
+        default:
+            return;
+    }
+
+    moveOverlaysBy(dx, dy);
+});
+
 ipcMain.handle('desktop-capture:get-sources', async (_event, opts = {}) => {
     const sources = await desktopCapturer.getSources({
         types: opts.types || ['screen', 'window'],

@@ -22,7 +22,7 @@ npm run dev
 - `CTRL + SHIFT + /`: Start or Pause the streaming
 - `CTRL + SHIFT + [up/down]` arrow: Scroll up or down on conversation
 - `CTRL + ALT + G`: Clear conversation
+- `CTRL + [up/down/left/right]` arrow: Position top/bottom/left/right the windows
 
 ## Controls unsupported
-- `CTRL + [up/down/left/right]` arrow: Position top/bottom/left/right the windows
 - `CTRL + B`: Hide or show windows

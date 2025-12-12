@@ -20,6 +20,16 @@ const normalizeChunkPayload = (data) => {
     return Buffer.from(data);
 };
 
+const validDirections = new Set(['left', 'right', 'up', 'down']);
+
+const sanitizeDirection = (direction) => {
+    const normalized = typeof direction === 'string' ? direction.toLowerCase() : '';
+    if (!validDirections.has(normalized)) {
+        return '';
+    }
+    return normalized;
+};
+
 contextBridge.exposeInMainWorld('electronAPI', {
     getDesktopSources: (options) => ipcRenderer.invoke('desktop-capture:get-sources', options),
     getPlatform: () => process.platform,
@@ -89,5 +99,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.on('transcription:stream', listener);
             return () => ipcRenderer.removeListener('transcription:stream', listener);
         }
+    },
+    overlay: {
+        moveDirection: (direction) => {
+            const safeDirection = sanitizeDirection(direction);
+            if (!safeDirection) {
+                return;
+            }
+            ipcRenderer.send('overlay:move-direction', { direction: safeDirection });
+        },
+        movementHandledGlobally: true
     }
 });

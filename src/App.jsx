@@ -140,6 +140,13 @@ function App() {
     const windowVariant = useMemo(() => resolveWindowVariant(), []);
     const isControlWindow = windowVariant === WINDOW_VARIANTS.CONTROL;
 
+    const overlayMovementHandledGlobally = useMemo(() => {
+        if (typeof electronAPI?.overlay?.movementHandledGlobally === 'boolean') {
+            return electronAPI.overlay.movementHandledGlobally;
+        }
+        return false;
+    }, []);
+
     useEffect(() => {
         if (typeof document === 'undefined') {
             return () => {};
@@ -151,6 +158,41 @@ function App() {
             }
         };
     }, [windowVariant]);
+
+    useEffect(() => {
+        if (overlayMovementHandledGlobally) {
+            return () => {};
+        }
+
+        const handler = (event) => {
+            const hasModifier = event.ctrlKey || event.metaKey;
+            if (!hasModifier) {
+                return;
+            }
+
+            const directionMap = {
+                ArrowLeft: 'left',
+                ArrowRight: 'right',
+                ArrowUp: 'up',
+                ArrowDown: 'down'
+            };
+
+            const direction = directionMap[event.key];
+            if (!direction) {
+                return;
+            }
+
+            event.preventDefault();
+            try {
+                electronAPI?.overlay?.moveDirection?.(direction);
+            } catch (_error) {
+                // ignore
+            }
+        };
+
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [overlayMovementHandledGlobally]);
 
     const chunkTimeslice = useMemo(() => {
         if (typeof electronAPI?.getChunkTimesliceMs === 'function') {
