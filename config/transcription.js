@@ -65,9 +65,9 @@ module.exports = function loadTranscriptionConfig() {
         },
         streaming: {
             maxChunkBytes: 128 * 1024,
-            maxPendingChunkMs: 150,
-            silenceFillMs: 200,
-            silenceFrameMs: 120,
+            maxPendingChunkMs: 80,
+            silenceFillMs: 120,
+            silenceFrameMs: 60,
             heartbeatIntervalMs: 250,
             silenceNotifyMs: 600,
             silenceSuppressMs: 900,

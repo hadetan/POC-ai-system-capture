@@ -30,10 +30,10 @@ class LiveStreamingSession extends EventEmitter {
         this.inputMimeType = 'audio/webm;codecs=opus';
         this.audioConverter = null;
         this.chunkInfo = new Map();
-        this.streamingConfig = options.streamingConfig;
+        this.streamingConfig = options.streamingConfig ;
         this.ffmpegPath = options.ffmpegPath || null;
-        this.silenceFillMs = Math.max(50, this.streamingConfig.silenceFillMs);
-        this.silenceFrameMs = Math.min(500, Math.max(50, this.streamingConfig.silenceFrameMs));
+        this.silenceFillMs = Math.max(50, Number(this.streamingConfig.silenceFillMs));
+        this.silenceFrameMs = Math.min(500, Math.max(50, Number(this.streamingConfig.silenceFrameMs)));
         this.silenceInterval = null;
         this.lastSendTs = 0;
         this.lastChunkMeta = null;
@@ -41,36 +41,36 @@ class LiveStreamingSession extends EventEmitter {
         this.lastServerTranscript = '';
         this.silenceFailureCount = 0;
         this.silenceSuppressedUntil = 0;
-        this.maxSilenceFailures = Math.max(1, this.streamingConfig.silenceFailureThreshold);
-        this.silenceBackoffMs = Math.max(1000, this.streamingConfig.silenceBackoffMs);
+        this.maxSilenceFailures = Math.max(1, Number(this.streamingConfig.silenceFailureThreshold));
+        this.silenceBackoffMs = Math.max(1000, Number(this.streamingConfig.silenceBackoffMs));
         this.pcmBuffer = Buffer.alloc(0);
         this.pendingFlushTimer = null;
-        this.maxPendingChunkMs = Math.max(50, this.streamingConfig.maxPendingChunkMs);
+        this.maxPendingChunkMs = Math.max(50, Number(this.streamingConfig.maxPendingChunkMs));
         this.firstChunkMeta = null;
         this.TARGET_CHUNK_SIZE = 3200; // Target chunk size: ~100ms of audio (16000Hz * 2 bytes * 0.1s = 3200 bytes)
         this.heartbeatInterval = null;
-        this.heartbeatIntervalMs = Math.max(100, this.streamingConfig.heartbeatIntervalMs);
+        this.heartbeatIntervalMs = Math.max(100, Number(this.streamingConfig.heartbeatIntervalMs));
         this.silenceDurationMs = 0;
-        this.silenceNotifyMs = Math.max(50, this.streamingConfig.silenceNotifyMs);
-        this.silenceSuppressMs = Math.max(this.silenceNotifyMs, this.streamingConfig.silenceSuppressMs);
-        this.silenceEnergyThreshold = Math.max(1, this.streamingConfig.silenceEnergyThreshold);
+        this.silenceNotifyMs = Math.max(50, Number(this.streamingConfig.silenceNotifyMs));
+        this.silenceSuppressMs = Math.max(this.silenceNotifyMs, Number(this.streamingConfig.silenceSuppressMs));
+        this.silenceEnergyThreshold = Math.max(1, Number(this.streamingConfig.silenceEnergyThreshold));
         this.lastSpeechAt = Date.now();
         this.lastServerUpdateAt = 0;
         this.reconnecting = false;
         this.reconnectAttempt = 0;
         this.reconnectPromise = null;
-        this.reconnectBackoffMs = Math.max(200, this.streamingConfig.reconnectBackoffMs);
-        this.maxReconnectAttempts = Math.max(1, this.streamingConfig.maxReconnectAttempts);
+        this.reconnectBackoffMs = Math.max(200, Number(this.streamingConfig.reconnectBackoffMs));
+        this.maxReconnectAttempts = Math.max(1, Number(this.streamingConfig.maxReconnectAttempts));
         this.latestPcmStats = null;
-        const vadCfg = this.streamingConfig.vad || {};
+        const vadCfg = this.streamingConfig.vad;
         this.vadConfig = {
-            enabled: true,
-            frameMs: vadCfg.frameMs || 30,
-            aggressiveness: vadCfg.aggressiveness,
-            minSpeechRatio: vadCfg.minSpeechRatio,
-            speechHoldMs: vadCfg.speechHoldMs,
-            silenceHoldMs: vadCfg.silenceHoldMs,
-            fillerHoldMs: vadCfg.fillerHoldMs
+            enabled: Boolean(vadCfg.enabled),
+            frameMs: vadCfg.frameMs,
+            aggressiveness: clampNumber(vadCfg.aggressiveness),
+            minSpeechRatio: clampNumber(vadCfg.minSpeechRatio),
+            speechHoldMs: Math.max(0, vadCfg.speechHoldMs),
+            silenceHoldMs: Math.max(0, vadCfg.silenceHoldMs),
+            fillerHoldMs: Math.max(0, vadCfg.fillerHoldMs)
         };
         this.vadInstance = null;
         this.vadLastSpeechTs = 0;
@@ -90,7 +90,7 @@ class LiveStreamingSession extends EventEmitter {
             this.lastSpeechAt = now;
             this.silenceDurationMs = 0;
 
-            const previousServer = this.lastServerTranscript || '';
+            const previousServer = this.lastServerTranscript;
             if (absoluteText === previousServer) {
                 return;
             }
@@ -432,8 +432,7 @@ class LiveStreamingSession extends EventEmitter {
             if (this.vadConfig?.enabled && this.vadFillerSuppressed) {
                 return;
             }
-            const buffer = buildSilenceFrame(this.silenceFrameBuffer, this.silenceFrameMs);
-            this.silenceFrameBuffer = buffer;
+            const buffer = this.buildSilenceFrame();
             const sent = this.client.sendAudio(buffer, {
                 filler: true,
                 captureTs: now,
