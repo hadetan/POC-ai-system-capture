@@ -413,7 +413,44 @@ app.whenReady().then(() => {
     createControlWindow();
     createTranscriptWindow();
 
+    const allRegisteredShortcuts = new Map();
+
+    const unregisterAllShortcutsExcept = (allowedSet = new Set()) => {
+        for (const accelerator of allRegisteredShortcuts.keys()) {
+            if (allowedSet.has(accelerator)) {
+                continue;
+            }
+            try {
+                if (globalShortcut.isRegistered(accelerator)) {
+                    globalShortcut.unregister(accelerator);
+                    console.log(`[Shortcut] Unregistered ${accelerator} accelerator.`);
+                }
+            } catch (err) {
+                console.warn(`[Shortcut] Failed to unregister ${accelerator}`, err);
+            }
+        }
+    };
+
+    const registerAllShortcuts = () => {
+        for (const [accelerator, handler] of allRegisteredShortcuts.entries()) {
+            try {
+                if (!globalShortcut.isRegistered(accelerator)) {
+                    const ok = globalShortcut.register(accelerator, handler);
+                    if (!ok) {
+                        console.warn(`[Shortcut] Failed to register ${accelerator} accelerator.`);
+                    } else {
+                        console.log(`[Shortcut] Registered ${accelerator} accelerator.`);
+                    }
+                }
+            } catch (err) {
+                console.warn(`[Shortcut] Failed to register ${accelerator}`, err);
+            }
+        }
+    };
+
     const registerShortcut = (accelerator, handler) => {
+        allRegisteredShortcuts.set(accelerator, handler);
+
         const ok = globalShortcut.register(accelerator, handler);
         if (!ok) {
             console.warn(`[Shortcut] Failed to register ${accelerator} accelerator.`);
@@ -494,6 +531,8 @@ app.whenReady().then(() => {
                     console.warn('[Shortcut] Failed to hide window', err);
                 }
             });
+
+            unregisterAllShortcutsExcept(new Set([visibilityToggleShortcut]));
             return;
         }
 
@@ -512,6 +551,7 @@ app.whenReady().then(() => {
             }
         });
 
+        registerAllShortcuts();
         positionOverlayWindows();
     });
 
