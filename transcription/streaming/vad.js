@@ -120,6 +120,5 @@ async function createVadInstance(options = {}) {
 
 module.exports = {
     createVadInstance,
-    normalizeFrameMs,
     SUPPORTED_FRAME_MS
 };
