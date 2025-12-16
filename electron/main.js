@@ -132,6 +132,8 @@ const initializeApp = async () => {
         moveStepPx
     } = windowManager;
 
+    assistantConfig = loadAssistantConfig();
+
     // Controller commands registry
     const toggleShortcut = 'CommandOrControl+Shift+/';
     shortcutManager.registerShortcut(toggleShortcut, () => {
@@ -166,13 +168,43 @@ const initializeApp = async () => {
         }
     });
 
-    const assistantShortcut = 'CommandOrControl+Shift+Alt+Enter';
-    shortcutManager.registerShortcut(assistantShortcut, () => {
-        const transcriptWindow = getTranscriptWindow();
-        if (transcriptWindow && !transcriptWindow.isDestroyed()) {
-            transcriptWindow.webContents.send('control-window:assistant-send');
-        }
-    });
+    const assistantEnabled = assistantConfig?.isEnabled !== false;
+
+    if (assistantEnabled) {
+        const assistantShortcut = 'CommandOrControl+Shift+Alt+Enter';
+        shortcutManager.registerShortcut(assistantShortcut, () => {
+            const transcriptWindow = getTranscriptWindow();
+            if (transcriptWindow && !transcriptWindow.isDestroyed()) {
+                transcriptWindow.webContents.send('control-window:assistant-send');
+            }
+        });
+
+        const attachImageShortcut = 'CommandOrControl+Alt+H';
+        shortcutManager.registerShortcut(attachImageShortcut, async () => {
+            const transcriptWindow = getTranscriptWindow();
+            if (!transcriptWindow || transcriptWindow.isDestroyed()) {
+                return;
+            }
+            try {
+                const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1280, height: 720 } });
+                const source = sources[0];
+                if (!source || !source.thumbnail) {
+                    throw new Error('No screen source available for capture.');
+                }
+                const buffer = source.thumbnail.toPNG();
+                const data = buffer.toString('base64');
+                transcriptWindow.webContents.send('control-window:assistant-attach', {
+                    name: `${source.name || 'screen'}.png`,
+                    mime: 'image/png',
+                    data
+                });
+            } catch (error) {
+                transcriptWindow.webContents.send('control-window:assistant-attach', {
+                    error: error?.message || 'Failed to capture screen.'
+                });
+            }
+        });
+    }
 
     const moveLeft = 'CommandOrControl+Left';
     shortcutManager.registerShortcut(moveLeft, () => moveOverlaysBy(-moveStepPx, 0));
@@ -325,8 +357,6 @@ const initializeApp = async () => {
         sessionWindowMap
     });
 
-    assistantConfig = loadAssistantConfig();
-
     assistantInitPromise = createAssistantService(assistantConfig)
         .then((service) => {
             assistantService = service;
@@ -372,7 +402,8 @@ const initializeApp = async () => {
         BrowserWindow,
         ensureAssistantService,
         getAssistantService: () => assistantService,
-        sessionWindowMap: assistantSessionWindowMap
+        sessionWindowMap: assistantSessionWindowMap,
+        assistantConfig
     });
 };
 

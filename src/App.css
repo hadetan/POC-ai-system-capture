@@ -180,9 +180,36 @@ body {
     border-color: rgba(34, 211, 238, 0.75);
 }
 
+.chat-bubble-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+}
+
+.chat-bubble-attachment {
+    width: 120px;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    object-fit: cover;
+    background: rgba(15, 23, 42, 0.4);
+}
+
 .chat-placeholder {
     color: rgba(184, 199, 220, 0.75);
     font-style: italic;
+}
+
+.toast {
+    margin: 0 0 0.6rem 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 10px;
+    background: rgba(14, 165, 233, 0.18);
+    color: #e0f2fe;
+    border: 1px solid rgba(125, 211, 252, 0.4);
+    font-size: 0.9rem;
+    line-height: 1.4;
 }
 
 @media (max-width: 520px) {

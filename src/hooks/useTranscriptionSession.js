@@ -11,6 +11,7 @@ export function useTranscriptionSession({ isControlWindow }) {
     const [messages, setMessages] = useState([]);
     const [latencyStatus, setLatencyStatus] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
+    const [notification, setNotification] = useState('');
 
     const sessionIdRef = useRef(null);
     const stopTranscriptionListenerRef = useRef(null);
@@ -26,6 +27,8 @@ export function useTranscriptionSession({ isControlWindow }) {
     const assistantSessionIdRef = useRef(null);
     const assistantRequestInFlightRef = useRef(false);
     const messagesRef = useRef([]);
+    const imageDraftIdRef = useRef(null);
+    const notificationTimerRef = useRef(null);
 
     const resetTranscriptionListener = useCallback(() => {
         if (typeof stopTranscriptionListenerRef.current === 'function') {
@@ -97,6 +100,8 @@ export function useTranscriptionSession({ isControlWindow }) {
         setMessages([]);
         assistantSessionIdRef.current = null;
         assistantRequestInFlightRef.current = false;
+        imageDraftIdRef.current = null;
+        setNotification('');
     }, []);
 
     const teardownSession = useCallback(async () => {
@@ -307,16 +312,36 @@ export function useTranscriptionSession({ isControlWindow }) {
         resetTranscriptionListener();
         resetLatencyWatchdog();
         resetAssistantListener();
+        if (notificationTimerRef.current) {
+            clearTimeout(notificationTimerRef.current);
+            notificationTimerRef.current = null;
+        }
+        setNotification('');
     }, [resetAssistantListener, resetLatencyWatchdog, resetTranscriptionListener]);
 
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
 
+    const showNotification = useCallback((text) => {
+        if (!text) {
+            return;
+        }
+        setNotification(text);
+        if (notificationTimerRef.current) {
+            clearTimeout(notificationTimerRef.current);
+        }
+        notificationTimerRef.current = setTimeout(() => {
+            setNotification('');
+            notificationTimerRef.current = null;
+        }, 2600);
+    }, []);
+
     const appendAssistantNotice = useCallback((text) => {
         if (!text) {
             return;
         }
+        showNotification(text);
         setMessages((prev) => ([
             ...prev,
             {
@@ -327,6 +352,52 @@ export function useTranscriptionSession({ isControlWindow }) {
                 side: 'right'
             }
         ]));
+    }, [showNotification]);
+
+    const upsertImageBubble = useCallback(({ draftId, attachments }) => {
+        if (!draftId || !attachments?.length) {
+            return;
+        }
+        setMessages((prev) => {
+            const next = [...prev];
+            const existingIndex = next.findIndex((msg) => msg.side === 'right' && msg.draftId === draftId && msg.type === 'image');
+            const normalizedAttachments = attachments.map((att, index) => {
+                const mime = typeof att?.mime === 'string' ? att.mime : 'image/png';
+                const data = typeof att?.data === 'string' ? att.data : '';
+                const id = att.id || `${draftId}-att-${index}`;
+                const dataUrl = data ? `data:${mime};base64,${data}` : '';
+                return {
+                    id,
+                    name: att.name || 'capture',
+                    mime,
+                    data,
+                    dataUrl
+                };
+            });
+            if (existingIndex !== -1) {
+                const existing = next[existingIndex];
+                const merged = [...(existing.attachments || [])];
+                normalizedAttachments.forEach((item) => {
+                    if (!merged.find((m) => m.id === item.id)) {
+                        merged.push(item);
+                    }
+                });
+                next[existingIndex] = { ...existing, attachments: merged, sent: false, isFinal: false };
+                return next;
+            }
+            next.push({
+                id: draftId,
+                draftId,
+                type: 'image',
+                attachments: normalizedAttachments,
+                text: '',
+                isFinal: false,
+                ts: Date.now(),
+                side: 'right',
+                sent: false
+            });
+            return next;
+        });
     }, []);
 
     const updateAssistantMessage = useCallback((payload = {}) => {
@@ -423,39 +494,84 @@ export function useTranscriptionSession({ isControlWindow }) {
         });
     }, [handleAssistantError, resetAssistantListener, updateAssistantMessage]);
 
+    const attachImageToDraft = useCallback(async (image) => {
+        if (image?.error) {
+            appendAssistantNotice(`Capture error: ${image.error}`);
+            return { ok: false, reason: 'capture-error' };
+        }
+        if (!image || !image.data || !image.mime) {
+            appendAssistantNotice('Capture failed: missing image data.');
+            return { ok: false, reason: 'invalid-image' };
+        }
+        if (assistantRequestInFlightRef.current) {
+            return { ok: false, reason: 'busy' };
+        }
+        if (typeof electronAPI?.assistant?.attachImage !== 'function') {
+            appendAssistantNotice('Assistant image attach is unavailable.');
+            return { ok: false, reason: 'unavailable' };
+        }
+        try {
+            const response = await electronAPI.assistant.attachImage({
+                draftId: imageDraftIdRef.current,
+                image
+            });
+            if (!response?.ok) {
+                const message = response?.error?.message || 'Failed to attach image.';
+                appendAssistantNotice(message);
+                return { ok: false, reason: 'error' };
+            }
+            imageDraftIdRef.current = response.draftId;
+            upsertImageBubble({ draftId: response.draftId, attachments: [image] });
+            return { ok: true, draftId: response.draftId, attachments: response.attachments };
+        } catch (error) {
+            appendAssistantNotice(`Assistant error: ${error?.message || 'Unknown error'}`);
+            return { ok: false, error };
+        }
+    }, [appendAssistantNotice, upsertImageBubble]);
+
     const requestAssistantResponse = useCallback(async () => {
         if (assistantRequestInFlightRef.current) {
             return { ok: false, reason: 'busy' };
         }
-        const available = (messagesRef.current || []).filter((msg) => msg.side === 'left' && msg.sent !== true && typeof msg.text === 'string' && msg.text.trim().length > 0);
-        if (available.length === 0) {
+        const pendingMessages = (messagesRef.current || []).filter((msg) => {
+            if (msg.sent === true) return false;
+            if (msg.side === 'left' && typeof msg.text === 'string' && msg.text.trim().length > 0) return true;
+            if (msg.side === 'right' && msg.type === 'image' && Array.isArray(msg.attachments) && msg.attachments.length > 0) return true;
+            return false;
+        });
+        if (pendingMessages.length === 0) {
             appendAssistantNotice('no new message available to send');
             return { ok: false, reason: 'no-unsent' };
         }
 
-        const prompt = available.map((msg) => msg.text.trim()).filter(Boolean).join(' ');
-        if (!prompt) {
-            appendAssistantNotice('no new message available to send');
-            return { ok: false, reason: 'no-unsent' };
-        }
+        const payloadMessages = pendingMessages.map((msg) => ({
+            id: msg.id,
+            text: typeof msg.text === 'string' ? msg.text : '',
+            side: msg.side,
+            type: msg.type
+        }));
 
         assistantRequestInFlightRef.current = true;
         try {
-            if (typeof electronAPI?.assistant?.sendMessage !== 'function') {
-                throw new Error('Assistant API is unavailable.');
+            if (typeof electronAPI?.assistant?.finalizeDraft !== 'function') {
+                throw new Error('Assistant finalize API is unavailable.');
             }
-            const response = await electronAPI.assistant.sendMessage({ text: prompt });
-            const { sessionId, messageId } = response || {};
-            if (!sessionId || !messageId) {
-                throw new Error('Assistant response is missing identifiers.');
+            const response = await electronAPI.assistant.finalizeDraft({
+                draftId: imageDraftIdRef.current,
+                messages: payloadMessages
+            });
+            const { sessionId, messageId, draftId } = response || {};
+            if (!response?.ok || !sessionId || !messageId) {
+                const message = response?.error?.message || 'Assistant response is missing identifiers.';
+                throw new Error(message);
             }
             assistantSessionIdRef.current = sessionId;
             const now = Date.now();
-            const sentIds = new Set(available.map((msg) => msg.id));
+            const sentIds = new Set(pendingMessages.map((msg) => msg.id));
             setMessages((prev) => {
                 const updated = prev.map((msg) => {
                     if (sentIds.has(msg.id)) {
-                        return { ...msg, sent: true };
+                        return { ...msg, sent: true, isFinal: true };
                     }
                     return msg;
                 });
@@ -475,7 +591,8 @@ export function useTranscriptionSession({ isControlWindow }) {
                     }
                 ];
             });
-            return { ok: true, sessionId, messageId };
+            imageDraftIdRef.current = null;
+            return { ok: true, sessionId, messageId, draftId };
         } catch (error) {
             appendAssistantNotice(`Assistant error: ${error?.message || 'Unknown error'}`);
             return { ok: false, error };
@@ -497,14 +614,18 @@ export function useTranscriptionSession({ isControlWindow }) {
         attachTranscriptionEvents,
         attachAssistantEvents,
         requestAssistantResponse,
-        getSessionId
+        attachImageToDraft,
+        getSessionId,
+        notification
     }), [
         attachAssistantEvents,
         attachTranscriptionEvents,
+        attachImageToDraft,
         clearTranscript,
         getSessionId,
         isStreaming,
         latencyStatus,
+        notification,
         requestAssistantResponse,
         messages,
         startTranscriptionSession,

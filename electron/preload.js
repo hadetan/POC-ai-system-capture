@@ -84,6 +84,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
             const listener = () => callback();
             ipcRenderer.on('control-window:assistant-send', listener);
             return () => ipcRenderer.removeListener('control-window:assistant-send', listener);
+        },
+        onAssistantAttach: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => {};
+            }
+            const listener = (_event, payload) => callback(payload);
+            ipcRenderer.on('control-window:assistant-attach', listener);
+            return () => ipcRenderer.removeListener('control-window:assistant-attach', listener);
         }
     },
     transcription: {
@@ -110,6 +118,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     assistant: {
         sendMessage: (payload) => ipcRenderer.invoke('assistant:send', payload),
+        attachImage: (payload) => ipcRenderer.invoke('assistant:attach-image', payload),
+        finalizeDraft: (payload) => ipcRenderer.invoke('assistant:finalize-draft', payload),
         stop: (sessionId) => {
             if (!sessionId) {
                 return Promise.resolve({ ok: false });

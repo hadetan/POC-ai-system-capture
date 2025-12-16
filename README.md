@@ -28,6 +28,10 @@ npm run dev
 - `CTRL + ALT + G`: Clear conversation
 - `CTRL + [up/down/left/right]` arrow: Position top/bottom/left/right the windows
 - `CTRL + SHIFT + ALT + B`: Hide or show windows
+- `CTRL + SHIFT + ALT + ENTER`: Send the asked question to A.I.
+- `CTRL + ALT + H`: Attaches current screen as PNG image to give it to AI. Best use is to attach coding questions and it will return the solved code.
 
-## Controls unsupported
-- `CTRL + ALT + ENTER`: Send the asked question to A.I.
+## Unsupported features
+- Validation on generated code.
+    - Node vm.script(code)
+    - python -m py_compile

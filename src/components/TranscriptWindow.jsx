@@ -13,7 +13,9 @@ export default function TranscriptWindow({ session, chunkTimeslice }) {
         attachTranscriptionEvents,
         attachAssistantEvents,
         clearTranscript,
-        requestAssistantResponse
+        requestAssistantResponse,
+        attachImageToDraft,
+        notification
     } = session;
     const { transcriptRef, scrollBy, resetScroll } = useTranscriptScroll({ messages });
 
@@ -53,6 +55,11 @@ export default function TranscriptWindow({ session, chunkTimeslice }) {
                 requestAssistantResponse();
             }));
         }
+        if (typeof api.onAssistantAttach === 'function') {
+            unsubscribes.push(api.onAssistantAttach((payload) => {
+                attachImageToDraft(payload);
+            }));
+        }
         return () => {
             unsubscribes.forEach((fn) => {
                 if (typeof fn === 'function') {
@@ -60,7 +67,7 @@ export default function TranscriptWindow({ session, chunkTimeslice }) {
                 }
             });
         };
-    }, [handleClear, requestAssistantResponse, scrollBy]);
+    }, [attachImageToDraft, handleClear, requestAssistantResponse, scrollBy]);
 
     return (
         <div className="transcript-shell">
@@ -69,6 +76,9 @@ export default function TranscriptWindow({ session, chunkTimeslice }) {
                     <span className={`state-dot ${isStreaming ? 'state-dot-live' : ''}`} aria-hidden="true" />
                     <span className="heading-chip">{isStreaming ? 'Streaming' : 'Idle'}</span>
                 </header>
+                {notification ? (
+                    <div className="toast" role="status">{notification}</div>
+                ) : null}
                 <div className="transcript-body" ref={transcriptRef}>
                     <div className="chat-container">
                         {messages.length === 0 ? (
@@ -80,6 +90,7 @@ export default function TranscriptWindow({ session, chunkTimeslice }) {
                                     side={msg.side || 'left'}
                                     text={msg.text}
                                     isFinal={msg.isFinal}
+                                    attachments={msg.attachments}
                                 />
                             ))
                         )}

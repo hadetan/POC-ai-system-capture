@@ -1,25 +1,58 @@
-const DEFAULT_PROVIDER = 'ollama';
-const DEFAULT_MODEL = 'qwen2.5-coder:1.5b';
-const DEFAULT_OLLAMA_CONFIG = {
-    baseUrl: 'http://127.0.0.1:11434',
+const DEFAULT_ANTHROPIC_CONFIG = {
+    baseUrl: 'https://api.anthropic.com',
     requestTimeoutMs: 120_000,
-    connectTimeoutMs: 10_000
+    connectTimeoutMs: 15_000,
+    maxOutputTokens: 1024
+};
+
+const systemPrompts = {
+    imageMode: 'You are a helpful assistant. Prefer image content as ground truth. If code is requested, return concise, correct code.',
+    textMode: 'You are a concise assistant. Respond clearly and briefly. If codeOnly is requested, return only code without commentary.'
+};
+
+const userPrompts = {
+    imageDefault: 'Analyze the provided image. Explain or solve any coding-related content. If a solution requires code, return concise, correct code.'
 };
 
 module.exports = function loadAssistantConfig() {
-    const provider = (process.env.ASSISTANT_PROVIDER || DEFAULT_PROVIDER).trim().toLowerCase();
-    const model = (process.env.ASSISTANT_MODEL || DEFAULT_MODEL).trim();
+    const provider = (process.env.ASSISTANT_PROVIDER || '').trim().toLowerCase();
+    const model = (process.env.ASSISTANT_MODEL || '').trim();
+    const apiKey = (process.env.ASSISTANT_API_KEY || '').trim();
+
+    const providerMissing = !provider;
+    const modelMissing = !model;
+    const apiKeyMissing = !apiKey;
+    const isEnabled = !providerMissing && !modelMissing && !apiKeyMissing;
+
+    const providerConfig = {};
+    if (provider === 'anthropic') {
+        providerConfig.anthropic = {
+            baseUrl: (process.env.ANTHROPIC_BASE_URL || DEFAULT_ANTHROPIC_CONFIG.baseUrl).trim(),
+            apiKey,
+            model,
+            requestTimeoutMs: Number.isFinite(Number(process.env.ANTHROPIC_REQUEST_TIMEOUT_MS))
+                ? Number(process.env.ANTHROPIC_REQUEST_TIMEOUT_MS)
+                : DEFAULT_ANTHROPIC_CONFIG.requestTimeoutMs,
+            connectTimeoutMs: Number.isFinite(Number(process.env.ANTHROPIC_CONNECT_TIMEOUT_MS))
+                ? Number(process.env.ANTHROPIC_CONNECT_TIMEOUT_MS)
+                : DEFAULT_ANTHROPIC_CONFIG.connectTimeoutMs,
+            maxOutputTokens: Number.isFinite(Number(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS))
+                ? Number(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS)
+                : DEFAULT_ANTHROPIC_CONFIG.maxOutputTokens
+        };
+    }
 
     return {
         provider,
         model,
-        providerConfig: {
-            ollama: {
-                baseUrl: DEFAULT_OLLAMA_CONFIG.baseUrl,
-                model,
-                requestTimeoutMs: DEFAULT_OLLAMA_CONFIG.requestTimeoutMs,
-                connectTimeoutMs: DEFAULT_OLLAMA_CONFIG.connectTimeoutMs
-            }
-        }
+        isEnabled,
+        missing: {
+            provider: providerMissing,
+            model: modelMissing,
+            apiKey: apiKeyMissing
+        },
+        systemPrompts,
+        userPrompts,
+        providerConfig
     };
 };
