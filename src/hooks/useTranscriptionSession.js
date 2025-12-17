@@ -95,16 +95,36 @@ export function useTranscriptionSession({ isControlWindow }) {
         }, STALL_WATCH_INTERVAL_MS);
     }, [formatStalledLabel, updateLatencyStatus]);
 
+    const discardAssistantDraft = useCallback(({ discardAll = false, draftId } = {}) => {
+        const requestDiscardAll = discardAll === true;
+        const targetDraftId = requestDiscardAll ? null : (draftId || imageDraftIdRef.current);
+        if (!requestDiscardAll && !targetDraftId) {
+            return;
+        }
+        if (requestDiscardAll || targetDraftId === imageDraftIdRef.current) {
+            imageDraftIdRef.current = null;
+        }
+        if (typeof electronAPI?.assistant?.discardDraft !== 'function') {
+            return;
+        }
+        const payload = requestDiscardAll ? { discardAll: true } : { draftId: targetDraftId };
+        electronAPI.assistant.discardDraft(payload).catch((error) => {
+            console.warn('Failed to discard assistant draft', error);
+        });
+    }, []);
+
     const clearTranscript = useCallback(() => {
         pendingMessageIdRef.current = null;
         continuationMessageIdRef.current = null;
         lastMessageUpdateTsRef.current = 0;
         setMessages([]);
+        messagesRef.current = [];
         assistantSessionIdRef.current = null;
         assistantRequestInFlightRef.current = false;
         imageDraftIdRef.current = null;
         setNotification('');
-    }, []);
+        discardAssistantDraft({ discardAll: true });
+    }, [discardAssistantDraft]);
 
     const teardownSession = useCallback(async () => {
         resetTranscriptionListener();
@@ -123,7 +143,8 @@ export function useTranscriptionSession({ isControlWindow }) {
         setMessages([]);
         setIsStreaming(false);
         resetLatencyWatchdog();
-    }, [isControlWindow, resetLatencyWatchdog, resetTranscriptionListener]);
+        discardAssistantDraft({ discardAll: true });
+    }, [discardAssistantDraft, isControlWindow, resetLatencyWatchdog, resetTranscriptionListener]);
 
     const getSessionId = useCallback(() => sessionIdRef.current, []);
 

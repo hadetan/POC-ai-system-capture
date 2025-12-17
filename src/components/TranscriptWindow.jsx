@@ -76,9 +76,6 @@ export default function TranscriptWindow({ session, chunkTimeslice }) {
                     <span className={`state-dot ${isStreaming ? 'state-dot-live' : ''}`} aria-hidden="true" />
                     <span className="heading-chip">{isStreaming ? 'Streaming' : 'Idle'}</span>
                 </header>
-                {notification ? (
-                    <div className="toast" role="status">{notification}</div>
-                ) : null}
                 <div className="transcript-body" ref={transcriptRef}>
                     <div className="chat-container">
                         {messages.length === 0 ? (

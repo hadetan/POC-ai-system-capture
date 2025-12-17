@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const assistantModulePromise = import('../src/utils/assistantMessage.js');
 const attachmentModulePromise = import('../src/utils/attachmentPreview.js');
+const { AssistantService } = require('../assistant/assistant-service');
 
 test('mergeAssistantText keeps placeholder until content arrives', async () => {
     const { mergeAssistantText } = await assistantModulePromise;
@@ -44,4 +45,23 @@ test('mergeAttachmentPreviews deduplicates by id and keeps latest data', async (
     const updated = merged.find((item) => item.id === 'img-1');
     assert.ok(updated);
     assert.equal(updated.dataUrl, 'data:image/png;base64,UPDATED');
+});
+
+test('AssistantService discardDraft removes targeted draft', () => {
+    const service = new AssistantService({ provider: 'ollama', providerConfig: { ollama: {} }, model: 'test-model' });
+    service.drafts.set('draft-1', { id: 'draft-1', attachments: [{ id: 'img-a' }] });
+    service.drafts.set('draft-2', { id: 'draft-2', attachments: [{ id: 'img-b' }] });
+    const result = service.discardDraft({ draftId: 'draft-1' });
+    assert.equal(result.discarded, 1);
+    assert.equal(service.drafts.has('draft-1'), false);
+    assert.equal(service.drafts.size, 1);
+});
+
+test('AssistantService discardDraft clears all drafts when requested', () => {
+    const service = new AssistantService({ provider: 'ollama', providerConfig: { ollama: {} }, model: 'test-model' });
+    service.drafts.set('draft-1', { id: 'draft-1', attachments: [] });
+    service.drafts.set('draft-2', { id: 'draft-2', attachments: [] });
+    const result = service.discardDraft({ discardAll: true });
+    assert.equal(result.discarded, 2);
+    assert.equal(service.drafts.size, 0);
 });

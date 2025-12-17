@@ -136,16 +136,41 @@ const registerAssistantHandlers = ({
         }
     };
 
+    const handleDiscardDraft = async (_event, payload = {}) => {
+        const availability = await ensureAvailable();
+        if (!availability.ok) {
+            return availability;
+        }
+        const service = availability.service;
+        try {
+            const result = await service.discardDraft({
+                draftId: payload.draftId,
+                discardAll: Boolean(payload.discardAll)
+            });
+            return { ok: true, ...result };
+        } catch (error) {
+            return {
+                ok: false,
+                error: {
+                    code: 'assistant-discard-failed',
+                    message: error?.message || 'Failed to discard draft.'
+                }
+            };
+        }
+    };
+
     ipcMain.handle('assistant:send', handleSend);
     ipcMain.handle('assistant:stop', handleStop);
     ipcMain.handle('assistant:attach-image', handleAttachImage);
     ipcMain.handle('assistant:finalize-draft', handleFinalizeDraft);
+    ipcMain.handle('assistant:discard-draft', handleDiscardDraft);
 
     return {
         handleSend,
         handleStop,
         handleAttachImage,
-        handleFinalizeDraft
+        handleFinalizeDraft,
+        handleDiscardDraft
     };
 };
 

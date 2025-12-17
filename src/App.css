@@ -122,8 +122,8 @@ body {
 }
 
 .transcript-body {
-    min-height: 200px;
-    max-height: 70vh;
+    /* min-height: 200px;
+    max-height: 70vh; */
     overflow-y: scroll;
     white-space: pre-wrap;
     word-break: break-word;
@@ -244,17 +244,6 @@ body {
 .chat-placeholder {
     color: rgba(184, 199, 220, 0.75);
     font-style: italic;
-}
-
-.toast {
-    margin: 0 0 0.6rem 0;
-    padding: 0.6rem 0.8rem;
-    border-radius: 10px;
-    background: rgba(14, 165, 233, 0.18);
-    color: #e0f2fe;
-    border: 1px solid rgba(125, 211, 252, 0.4);
-    font-size: 0.9rem;
-    line-height: 1.4;
 }
 
 @media (max-width: 520px) {

@@ -146,6 +146,19 @@ class AssistantService extends EventEmitter {
         return { attachments: [], consumedDraftId: null };
     }
 
+    discardDraft({ draftId, discardAll = false } = {}) {
+        if (discardAll) {
+            const discarded = this.drafts.size;
+            this.drafts.clear();
+            return { discarded };
+        }
+        if (!draftId) {
+            return { discarded: 0 };
+        }
+        const existed = this.drafts.delete(draftId);
+        return { discarded: existed ? 1 : 0 };
+    }
+
     buildPrompts({ hasImages, textContent, codeOnly }) {
         const systemPrompt = hasImages ? this.config.systemPrompts?.imageMode : this.config.systemPrompts?.textMode;
         const hasText = Boolean(textContent);
