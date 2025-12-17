@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { initialTranscriptText, resolveTranscriptText } from '../utils/transcriptText';
+import { buildAttachmentPreview, mergeAttachmentPreviews } from '../utils/attachmentPreview';
+import { mergeAssistantText } from '../utils/assistantMessage';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const STALL_THRESHOLD_MS = 1500;
@@ -362,26 +364,17 @@ export function useTranscriptionSession({ isControlWindow }) {
             const next = [...prev];
             const existingIndex = next.findIndex((msg) => msg.side === 'right' && msg.draftId === draftId && msg.type === 'image');
             const normalizedAttachments = attachments.map((att, index) => {
-                const mime = typeof att?.mime === 'string' ? att.mime : 'image/png';
-                const data = typeof att?.data === 'string' ? att.data : '';
-                const id = att.id || `${draftId}-att-${index}`;
-                const dataUrl = data ? `data:${mime};base64,${data}` : '';
-                return {
-                    id,
-                    name: att.name || 'capture',
-                    mime,
-                    data,
-                    dataUrl
-                };
+                if (att?.dataUrl) {
+                    return att;
+                }
+                return buildAttachmentPreview({
+                    image: att,
+                    fallbackId: `${draftId}-${Date.now()}-${index}`
+                });
             });
             if (existingIndex !== -1) {
                 const existing = next[existingIndex];
-                const merged = [...(existing.attachments || [])];
-                normalizedAttachments.forEach((item) => {
-                    if (!merged.find((m) => m.id === item.id)) {
-                        merged.push(item);
-                    }
-                });
+                const merged = mergeAttachmentPreviews(existing.attachments || [], normalizedAttachments);
                 next[existingIndex] = { ...existing, attachments: merged, sent: false, isFinal: false };
                 return next;
             }
@@ -415,18 +408,24 @@ export function useTranscriptionSession({ isControlWindow }) {
                     return msg;
                 }
                 matched = true;
-                const base = msg.text === 'Thinking...' ? '' : (msg.text || '');
-                const updatedText = serverText !== undefined ? serverText : `${base}${delta}`;
-                return { ...msg, text: updatedText, isFinal };
+                const { text: mergedText, didUpdate } = mergeAssistantText(msg.text, { delta, serverText });
+                const needsUpdate = didUpdate || msg.isFinal !== isFinal;
+                if (!needsUpdate) {
+                    return msg;
+                }
+                return { ...msg, text: mergedText, isFinal };
             });
-            if (!matched && (serverText || delta)) {
-                next.push({
-                    id: messageId,
-                    text: serverText || delta,
-                    isFinal,
-                    ts: Date.now(),
-                    side: 'right'
-                });
+            if (!matched) {
+                const { text: newText, didUpdate } = mergeAssistantText('', { delta, serverText });
+                if (didUpdate) {
+                    next.push({
+                        id: messageId,
+                        text: newText,
+                        isFinal,
+                        ts: Date.now(),
+                        side: 'right'
+                    });
+                }
             }
             return next;
         });
@@ -521,7 +520,14 @@ export function useTranscriptionSession({ isControlWindow }) {
                 return { ok: false, reason: 'error' };
             }
             imageDraftIdRef.current = response.draftId;
-            upsertImageBubble({ draftId: response.draftId, attachments: [image] });
+            const metadataList = Array.isArray(response.attachments) ? response.attachments : [];
+            const latestMeta = metadataList.at(-1);
+            const preview = buildAttachmentPreview({
+                image,
+                metadata: latestMeta,
+                fallbackId: `${response.draftId || 'draft'}-${metadataList.length || 0}-${Date.now()}`
+            });
+            upsertImageBubble({ draftId: response.draftId, attachments: [preview] });
             return { ok: true, draftId: response.draftId, attachments: response.attachments };
         } catch (error) {
             appendAssistantNotice(`Assistant error: ${error?.message || 'Unknown error'}`);
