@@ -22,8 +22,8 @@
       "electron/**",
       "dist/renderer/**",
       "config/**",
-      "assistant/**",
-      "transcription/**",
+      "ai/assistant/**",
+      "ai/transcription/**",
       "utils/**",
       "tools/**",
       "package.json"

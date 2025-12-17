@@ -3,8 +3,8 @@ const path = require('node:path');
 const { app, BrowserWindow, ipcMain, desktopCapturer, screen, globalShortcut, nativeImage } = require('electron');
 const loadTranscriptionConfig = require('../config/transcription');
 const loadAssistantConfig = require('../config/assistant');
-const { createTranscriptionService } = require('../transcription');
-const { createAssistantService } = require('../assistant');
+const { createTranscriptionService } = require('../ai/transcription');
+const { createAssistantService } = require('../ai/assistant');
 const {
     loadEnv,
     parseArgvFlags,
