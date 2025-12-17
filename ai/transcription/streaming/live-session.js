@@ -23,6 +23,7 @@ class LiveStreamingSession extends EventEmitter {
         this.id = options.sessionId;
         this.sourceName = options.sourceName;
         this.client = options.client;
+        this.sourceType = options.sourceType || 'system';
         this.converterFactory = options.converterFactory || ((converterOptions) => new PersistentAudioConverter(converterOptions));
         this.terminated = false;
         this.lastSequence = -1;

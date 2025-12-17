@@ -35,7 +35,10 @@ const registerTranscriptionHandlers = ({
         const sessionId = await service.startSession({
             sessionId: payload.sessionId,
             sourceName: payload.sourceName,
-            platform: payload.platform
+            sourceType: payload.sourceType,
+            platform: payload.platform,
+            streamingConfig: payload.streamingConfig,
+            ffmpegPath: payload.ffmpegPath
         });
 
         windowMap.set(sessionId, targetWindow.id);

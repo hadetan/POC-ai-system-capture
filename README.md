@@ -32,6 +32,7 @@ npm run dev
 - `CTRL + ALT + H`: Attaches current screen as PNG image to give it to AI. Best use is to attach coding questions and it will return the solved code.
 
 ## Unsupported features
+- AI Does not have context of previous message it sent while solving the code problem. *!Important*
 - Validation on generated code.
     - Node vm.script(code)
     - python -m py_compile

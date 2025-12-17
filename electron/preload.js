@@ -53,6 +53,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.on('control-window:toggle-capture', listener);
             return () => ipcRenderer.removeListener('control-window:toggle-capture', listener);
         },
+        onToggleMicCapture: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => {};
+            }
+            const listener = () => callback();
+            ipcRenderer.on('control-window:toggle-mic-capture', listener);
+            return () => ipcRenderer.removeListener('control-window:toggle-mic-capture', listener);
+        },
         onScrollUp: (callback) => {
             if (typeof callback !== 'function') {
                 return () => {};

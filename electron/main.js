@@ -160,6 +160,15 @@ const initializeApp = async () => {
         }
     });
 
+    const micToggleShortcut = 'CommandOrControl+Alt+M';
+    shortcutManager.registerShortcut(micToggleShortcut, () => {
+        const targets = [getControlWindow(), getTranscriptWindow()]
+            .filter((win) => win && !win.isDestroyed());
+        targets.forEach((win) => {
+            win.webContents.send('control-window:toggle-mic-capture');
+        });
+    });
+
     const clearTranscriptShortcut = 'CommandOrControl+Alt+G';
     shortcutManager.registerShortcut(clearTranscriptShortcut, () => {
         const transcriptWindow = getTranscriptWindow();
@@ -246,7 +255,7 @@ const initializeApp = async () => {
                 }
             });
 
-            shortcutManager.unregisterAllShortcutsExcept(new Set([visibilityToggleShortcut, attachImageShortcut]));
+            shortcutManager.unregisterAllShortcutsExcept(new Set([visibilityToggleShortcut, attachImageShortcut, micToggleShortcut]));
             return;
         }
 

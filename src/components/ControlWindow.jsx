@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useRecorder } from '../hooks/useRecorder';
+import { useMicRecorder } from '../hooks/useMicRecorder';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 
@@ -41,8 +42,23 @@ export default function ControlWindow({
         sessionApi
     });
 
+    const {
+        isMicRecording,
+        isMicStarting,
+        micStatus,
+        startMicRecording,
+        stopMicRecording
+    } = useMicRecorder({
+        chunkTimeslice,
+        platform,
+        preferredMimeType,
+        sessionApi
+    });
+
     const streamingStateRef = useRef(false);
     const selectingSourceRef = useRef(false);
+    const micStateRef = useRef(false);
+    const micStartingRef = useRef(false);
 
     useEffect(() => {
         streamingStateRef.current = isRecording;
@@ -51,6 +67,14 @@ export default function ControlWindow({
     useEffect(() => {
         selectingSourceRef.current = isSelectingSource;
     }, [isSelectingSource]);
+
+    useEffect(() => {
+        micStateRef.current = isMicRecording;
+    }, [isMicRecording]);
+
+    useEffect(() => {
+        micStartingRef.current = isMicStarting;
+    }, [isMicStarting]);
 
     useEffect(() => {
         const registerToggle = electronAPI?.controlWindow?.onToggleCapture;
@@ -76,6 +100,29 @@ export default function ControlWindow({
     }, [startRecording, stopRecording]);
 
     useEffect(() => {
+        const registerToggle = electronAPI?.controlWindow?.onToggleMicCapture;
+        if (typeof registerToggle !== 'function') {
+            return () => {};
+        }
+        const unsubscribe = registerToggle(async () => {
+            try {
+                if (micStateRef.current || micStartingRef.current) {
+                    await stopMicRecording();
+                } else {
+                    await startMicRecording();
+                }
+            } catch (error) {
+                console.error('Failed to toggle mic via shortcut', error);
+            }
+        });
+        return () => {
+            if (typeof unsubscribe === 'function') {
+                unsubscribe();
+            }
+        };
+    }, [startMicRecording, stopMicRecording]);
+
+    useEffect(() => {
         if (typeof window === 'undefined') {
             return () => {};
         }
@@ -90,6 +137,12 @@ export default function ControlWindow({
     }, [stopRecording]);
 
     const startLabel = useMemo(() => (isSelectingSource ? 'Starting…' : 'Start'), [isSelectingSource]);
+    const micLabel = useMemo(() => {
+        if (isMicStarting) {
+            return 'Mic…';
+        }
+        return isMicRecording ? 'Mic On' : 'Mic Off';
+    }, [isMicRecording, isMicStarting]);
     const canStart = !isRecording && !isSelectingSource;
     const canStop = isRecording;
 
@@ -112,6 +165,17 @@ export default function ControlWindow({
                 >
                     Stop
                 </button>
+                <button
+                    className={`control-button control-mic ${isMicRecording ? 'active' : ''}`}
+                    type="button"
+                    disabled={isMicStarting}
+                    onClick={isMicRecording ? stopMicRecording : startMicRecording}
+                >
+                    {micLabel}
+                </button>
+            </div>
+            <div className="control-status" aria-live="polite">
+                {micStatus}
             </div>
         </div>
     );

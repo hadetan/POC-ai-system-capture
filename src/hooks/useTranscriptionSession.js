@@ -16,10 +16,9 @@ export function useTranscriptionSession({ isControlWindow }) {
     const [notification, setNotification] = useState('');
 
     const sessionIdRef = useRef(null);
+    const aggregatedSessionIdsRef = useRef(new Set());
+    const sessionStateRef = useRef(new Map());
     const stopTranscriptionListenerRef = useRef(null);
-    const pendingMessageIdRef = useRef(null);
-    const continuationMessageIdRef = useRef(null);
-    const lastMessageUpdateTsRef = useRef(0);
     const latencyTimerRef = useRef(null);
     const lastLatencyTsRef = useRef(0);
     const latencyLabelRef = useRef('');
@@ -44,6 +43,30 @@ export function useTranscriptionSession({ isControlWindow }) {
             assistantListenerRef.current();
         }
         assistantListenerRef.current = null;
+    }, []);
+
+    const ensureSessionState = useCallback((sessionId, meta = {}) => {
+        if (!sessionId) {
+            return null;
+        }
+        const map = sessionStateRef.current;
+        if (!map.has(sessionId)) {
+            map.set(sessionId, {
+                pendingMessageId: null,
+                continuationMessageId: null,
+                lastMessageUpdateTs: 0,
+                sourceName: meta.sourceName || '',
+                sourceType: meta.sourceType || 'system'
+            });
+        } else if (meta.sourceName || meta.sourceType) {
+            const existing = map.get(sessionId);
+            map.set(sessionId, {
+                ...existing,
+                sourceName: meta.sourceName || existing.sourceName,
+                sourceType: meta.sourceType || existing.sourceType
+            });
+        }
+        return map.get(sessionId);
     }, []);
 
     const formatStalledLabel = useCallback((durationMs) => {
@@ -114,9 +137,7 @@ export function useTranscriptionSession({ isControlWindow }) {
     }, []);
 
     const clearTranscript = useCallback(() => {
-        pendingMessageIdRef.current = null;
-        continuationMessageIdRef.current = null;
-        lastMessageUpdateTsRef.current = 0;
+        sessionStateRef.current.clear();
         setMessages([]);
         messagesRef.current = [];
         assistantSessionIdRef.current = null;
@@ -137,9 +158,8 @@ export function useTranscriptionSession({ isControlWindow }) {
                 // ignore teardown failures
             }
         }
-        pendingMessageIdRef.current = null;
-        continuationMessageIdRef.current = null;
-        lastMessageUpdateTsRef.current = 0;
+        sessionStateRef.current.clear();
+        aggregatedSessionIdsRef.current.clear();
         setMessages([]);
         setIsStreaming(false);
         resetLatencyWatchdog();
@@ -148,14 +168,28 @@ export function useTranscriptionSession({ isControlWindow }) {
 
     const getSessionId = useCallback(() => sessionIdRef.current, []);
 
-    const startTranscriptionSession = useCallback(async ({ sourceName, platform }) => {
+    const startTranscriptionSession = useCallback(async (params = {}) => {
         if (typeof electronAPI?.transcription?.startSession !== 'function') {
             throw new Error('Transcription start API unavailable.');
         }
-        const response = await electronAPI.transcription.startSession({ sourceName, platform });
-        sessionIdRef.current = response?.sessionId || null;
+        const payload = {
+            sourceName: params.sourceName,
+            platform: params.platform,
+            sourceType: params.sourceType,
+            streamingConfig: params.streamingConfig
+        };
+        const response = await electronAPI.transcription.startSession(payload);
+        const newSessionId = response?.sessionId || null;
+        sessionIdRef.current = newSessionId;
+        if (newSessionId) {
+            aggregatedSessionIdsRef.current.add(newSessionId);
+            ensureSessionState(newSessionId, {
+                sourceName: params.sourceName,
+                sourceType: params.sourceType
+            });
+        }
         return response;
-    }, []);
+    }, [ensureSessionState]);
 
     const stopTranscriptionSession = useCallback(async () => {
         if (!sessionIdRef.current || typeof electronAPI?.transcription?.stopSession !== 'function') {
@@ -183,14 +217,18 @@ export function useTranscriptionSession({ isControlWindow }) {
                 return;
             }
 
-            if (isControlWindow) {
-                if (!sessionIdRef.current || eventSessionId !== sessionIdRef.current) {
-                    return;
+            ensureSessionState(eventSessionId, {
+                sourceName: payload.sourceName,
+                sourceType: payload.sourceType
+            });
+
+            if (payload.type === 'started') {
+                aggregatedSessionIdsRef.current.add(eventSessionId);
+                if (!isControlWindow && !sessionIdRef.current) {
+                    sessionIdRef.current = eventSessionId;
                 }
-            } else if (!sessionIdRef.current && payload.type === 'started') {
-                sessionIdRef.current = eventSessionId;
-            } else if (sessionIdRef.current !== eventSessionId && payload.type !== 'stopped') {
-                return;
+            } else if (!aggregatedSessionIdsRef.current.has(eventSessionId) && payload.type !== 'stopped') {
+                aggregatedSessionIdsRef.current.add(eventSessionId);
             }
 
             switch (payload.type) {
@@ -208,61 +246,97 @@ export function useTranscriptionSession({ isControlWindow }) {
                     const isFinal = Boolean(payload.isFinal);
                     const hasDelta = delta.length > 0;
                     const hasServerText = serverText.length > 0;
-                    const now = Date.now();
-                    const lastUpdateTs = lastMessageUpdateTsRef.current || 0;
-                    const canContinue = lastUpdateTs > 0 && (now - lastUpdateTs) <= CONTINUATION_LINGER_MS;
-                    const continuationId = canContinue ? continuationMessageIdRef.current : null;
-                    if (!canContinue) {
-                        continuationMessageIdRef.current = null;
-                    }
                     if (hasDelta || hasServerText) {
                         const textContext = { delta, serverText };
                         setMessages((prev) => {
                             const next = [...prev];
-                            const pendingId = pendingMessageIdRef.current;
-                            const targetId = pendingId || continuationId;
+                            const state = ensureSessionState(eventSessionId, {
+                                sourceName: payload.sourceName,
+                                sourceType: payload.sourceType
+                            }) || {};
+                            const now = Date.now();
+                            const lastUpdateTs = state.lastMessageUpdateTs || 0;
+                            const canContinue = lastUpdateTs > 0 && (now - lastUpdateTs) <= CONTINUATION_LINGER_MS;
+                            if (!canContinue) {
+                                state.continuationMessageId = null;
+                            }
+                            const targetId = state.pendingMessageId || (canContinue ? state.continuationMessageId : null);
+                            const sourceName = payload.sourceName || state.sourceName || 'system audio';
+                            const isMicSource = (payload.sourceType || state.sourceType) === 'mic';
 
                             if (!isFinal) {
                                 if (targetId) {
                                     const updated = next.map((msg) => {
                                         if (msg.id !== targetId) return msg;
                                         const updatedText = resolveTranscriptText(msg.text, textContext);
-                                        return { ...msg, text: updatedText, isFinal: false };
+                                        return {
+                                            ...msg,
+                                            text: updatedText,
+                                            isFinal: false,
+                                            sourceName,
+                                            isMic: msg.isMic ?? isMicSource
+                                        };
                                     });
-                                    pendingMessageIdRef.current = targetId;
-                                    continuationMessageIdRef.current = targetId;
-                                    lastMessageUpdateTsRef.current = now;
+                                    state.pendingMessageId = targetId;
+                                    state.continuationMessageId = targetId;
+                                    state.lastMessageUpdateTs = now;
                                     return updated;
                                 }
                                 const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                                pendingMessageIdRef.current = id;
-                                continuationMessageIdRef.current = id;
-                                lastMessageUpdateTsRef.current = now;
+                                state.pendingMessageId = id;
+                                state.continuationMessageId = id;
+                                state.lastMessageUpdateTs = now;
                                 const initialText = initialTranscriptText(textContext);
                                 if (initialText) {
-                                    next.push({ id, text: initialText, isFinal: false, ts: now, side: 'left', sent: false });
+                                    next.push({
+                                        id,
+                                        text: initialText,
+                                        isFinal: false,
+                                        ts: now,
+                                        side: 'left',
+                                        sent: false,
+                                        originSessionId: eventSessionId,
+                                        sourceName,
+                                        isMic: isMicSource
+                                    });
                                 }
                                 return next;
                             }
 
                             if (targetId) {
-                                pendingMessageIdRef.current = null;
-                                continuationMessageIdRef.current = targetId;
-                                lastMessageUpdateTsRef.current = now;
+                                state.pendingMessageId = null;
+                                state.continuationMessageId = targetId;
+                                state.lastMessageUpdateTs = now;
                                 return next.map((msg) => {
                                     if (msg.id !== targetId) return msg;
                                     const finalizedText = resolveTranscriptText(msg.text, textContext);
-                                    return { ...msg, text: finalizedText, isFinal: true };
+                                    return {
+                                        ...msg,
+                                        text: finalizedText,
+                                        isFinal: true,
+                                        sourceName,
+                                        isMic: msg.isMic ?? isMicSource
+                                    };
                                 });
                             }
 
                             const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                            pendingMessageIdRef.current = null;
-                            continuationMessageIdRef.current = id;
-                            lastMessageUpdateTsRef.current = now;
+                            state.pendingMessageId = null;
+                            state.continuationMessageId = id;
+                            state.lastMessageUpdateTs = now;
                             const initialText = initialTranscriptText(textContext);
                             if (initialText) {
-                                next.push({ id, text: initialText, isFinal: true, ts: now, side: 'left', sent: false });
+                                next.push({
+                                    id,
+                                    text: initialText,
+                                    isFinal: true,
+                                    ts: now,
+                                    side: 'left',
+                                    sent: false,
+                                    originSessionId: eventSessionId,
+                                    sourceName,
+                                    isMic: isMicSource
+                                });
                             }
                             return next;
                         });
@@ -287,20 +361,23 @@ export function useTranscriptionSession({ isControlWindow }) {
                     latencySuffixReasonRef.current = '';
                     setStatus(`Transcription error: ${payload.error?.message || 'Unknown error'}`);
                     break;
-                case 'stopped':
+                case 'stopped': {
                     resetLatencyWatchdog();
                     latencySuffixRef.current = '';
                     latencySuffixReasonRef.current = '';
-                    setStatus('Transcription session stopped.');
-                    pendingMessageIdRef.current = null;
-                    setMessages([]);
-                    setIsStreaming(false);
-                    continuationMessageIdRef.current = null;
-                    lastMessageUpdateTsRef.current = 0;
-                    if (!isControlWindow) {
+                    aggregatedSessionIdsRef.current.delete(eventSessionId);
+                    sessionStateRef.current.delete(eventSessionId);
+                    if (sessionIdRef.current === eventSessionId) {
                         sessionIdRef.current = null;
                     }
+                    const stillActive = aggregatedSessionIdsRef.current.size > 0;
+                    if (!stillActive) {
+                        setMessages([]);
+                    }
+                    setStatus('Transcription session stopped.');
+                    setIsStreaming(stillActive);
                     break;
+                }
                 case 'heartbeat': {
                     const state = payload.state || (payload.silent ? 'silence' : 'speech');
                     if (state === 'reconnecting') {
