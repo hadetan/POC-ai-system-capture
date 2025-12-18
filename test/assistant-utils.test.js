@@ -1,9 +1,29 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const { EventEmitter } = require('node:events');
 const assistantModulePromise = import('../src/utils/assistantMessage.js');
 const attachmentModulePromise = import('../src/utils/attachmentPreview.js');
 const { AssistantService } = require('../ai/assistant/assistant-service');
+
+class FakeProvider extends EventEmitter {
+    constructor() {
+        super();
+        this.startedPayloads = [];
+    }
+
+    async startStream(payload = {}) {
+        this.startedPayloads.push(payload);
+        setTimeout(() => {
+            this.emit('final', { text: 'done', stopReason: 'completed' });
+        }, 0);
+        return { ok: true };
+    }
+
+    async cancel() {
+        return { ok: true };
+    }
+}
 
 test('mergeAssistantText keeps placeholder until content arrives', async () => {
     const { mergeAssistantText } = await assistantModulePromise;
@@ -64,4 +84,107 @@ test('AssistantService discardDraft clears all drafts when requested', () => {
     const result = service.discardDraft({ discardAll: true });
     assert.equal(result.discarded, 2);
     assert.equal(service.drafts.size, 0);
+});
+
+test('AssistantService finalizeDraft sends transcript JSON with speaker hints', async () => {
+    const service = new AssistantService({
+        provider: 'anthropic',
+        providerConfig: { anthropic: { maxOutputTokens: 512 } },
+        model: 'fake-model',
+        systemPrompts: {
+            textMode: 'SYSTEM-TEXT',
+            imageMode: 'SYSTEM-IMAGE'
+        }
+    });
+    service.createProvider = () => new FakeProvider();
+    await service.init();
+
+    const stopPromise = new Promise((resolve) => {
+        service.once('session-stopped', resolve);
+    });
+
+    await service.finalizeDraft({
+        messages: [
+            { id: 'msg-1', messageBy: 'interviewer', message: 'How are you?' },
+            { id: 'msg-2', messageBy: 'user', message: "I'm doing well." }
+        ]
+    });
+
+    await stopPromise;
+
+    const provider = service.provider;
+    assert.ok(provider.startedPayloads.length >= 1);
+    const payload = provider.startedPayloads.at(-1);
+    assert.ok(Array.isArray(payload.messages));
+    assert.equal(payload.stream, true);
+
+    const firstMessage = payload.messages[0];
+    assert.equal(firstMessage.role, 'user');
+    const textBlock = firstMessage.content.find((item) => item.type === 'text');
+    assert.ok(textBlock);
+    assert.match(textBlock.text, /Transcript context \(chronological JSON\):/);
+    assert.match(textBlock.text, /"messageBy": "interviewer"/);
+    assert.match(textBlock.text, /"messageBy": "user"/);
+    assert.match(textBlock.text, /No response returned/);
+});
+
+test('AssistantService finalizeDraft preserves image context when transcript absent', async () => {
+    const service = new AssistantService({
+        provider: 'anthropic',
+        providerConfig: { anthropic: { maxOutputTokens: 256 } },
+        model: 'fake-model',
+        systemPrompts: {
+            textMode: 'SYSTEM-TEXT',
+            imageMode: 'SYSTEM-IMAGE'
+        }
+    });
+    service.createProvider = () => new FakeProvider();
+    await service.init();
+
+    service.drafts.set('draft-1', {
+        id: 'draft-1',
+        attachments: [
+            { id: 'img-1', mime: 'image/png', data: 'AAA' }
+        ]
+    });
+
+    const stopPromise = new Promise((resolve) => {
+        service.once('session-stopped', resolve);
+    });
+
+    await service.finalizeDraft({
+        draftId: 'draft-1',
+        messages: []
+    });
+
+    await stopPromise;
+
+    const payload = service.provider.startedPayloads.at(-1);
+    assert.equal(payload.stream, false);
+    const content = payload.messages[0].content;
+    const textBlock = content.find((item) => item.type === 'text');
+    assert.ok(textBlock);
+    assert.match(textBlock.text, /Image context: attachment\(s\) are available/);
+    const imageBlock = content.find((item) => item.type === 'image');
+    assert.ok(imageBlock);
+    assert.equal(imageBlock.source.media_type, 'image/png');
+});
+
+test('AssistantService finalizeDraft rejects when no transcripts or images remain', async () => {
+    const service = new AssistantService({
+        provider: 'anthropic',
+        providerConfig: { anthropic: { maxOutputTokens: 128 } },
+        model: 'fake-model',
+        systemPrompts: {
+            textMode: 'SYS',
+            imageMode: 'SYS-IMG'
+        }
+    });
+    service.createProvider = () => new FakeProvider();
+    await service.init();
+
+    await assert.rejects(
+        () => service.finalizeDraft({ messages: [], draftId: null }),
+        /No pending content/
+    );
 });

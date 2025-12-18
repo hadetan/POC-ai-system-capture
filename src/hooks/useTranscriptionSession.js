@@ -670,12 +670,21 @@ export function useTranscriptionSession({ isControlWindow }) {
             return { ok: false, reason: 'no-unsent' };
         }
 
-        const payloadMessages = pendingMessages.map((msg) => ({
-            id: msg.id,
-            text: typeof msg.text === 'string' ? msg.text : '',
-            side: msg.side,
-            type: msg.type
-        }));
+        const transcriptQueue = pendingMessages.filter((msg) => msg.side === 'left');
+        const transcriptPayload = transcriptQueue
+            .map((msg) => {
+                const rawText = typeof msg.text === 'string' ? msg.text : '';
+                if (!rawText) {
+                    return null;
+                }
+                const speaker = msg.sourceType === TRANSCRIPTION_SOURCE_TYPES.MIC ? 'user' : 'interviewer';
+                return {
+                    id: msg.id,
+                    messageBy: speaker,
+                    message: rawText
+                };
+            })
+            .filter(Boolean);
 
         assistantRequestInFlightRef.current = true;
         try {
@@ -684,7 +693,7 @@ export function useTranscriptionSession({ isControlWindow }) {
             }
             const response = await electronAPI.assistant.finalizeDraft({
                 draftId: imageDraftIdRef.current,
-                messages: payloadMessages
+                messages: transcriptPayload
             });
             const { sessionId, messageId, draftId } = response || {};
             if (!response?.ok || !sessionId || !messageId) {

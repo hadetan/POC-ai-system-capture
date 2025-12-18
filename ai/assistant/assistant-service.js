@@ -69,17 +69,27 @@ class AssistantService extends EventEmitter {
             throw new Error('Assistant is already processing a request.');
         }
 
+        const transcriptMessages = this.normalizeTranscriptMessages(messages);
         const { attachments, consumedDraftId } = this.consumeDraft(draftId);
-        const textContent = this.combineUserText(messages);
-        const hasText = Boolean(textContent);
+        const hasTranscriptContext = transcriptMessages.length > 0;
         const hasImages = attachments.length > 0;
 
-        if (!hasText && !hasImages) {
+        if (!hasTranscriptContext && !hasImages) {
             throw new Error('No pending content to send to the assistant.');
         }
 
-        const { systemPrompt, userPrompt, stream } = this.buildPrompts({ hasImages, textContent, codeOnly });
-        const { messagePayload, promptText } = this.buildProviderPayload({ attachments, userPrompt, systemPrompt, hasImages, textContent, codeOnly });
+        const { systemPrompt, userPrompt, stream } = this.buildPrompts({
+            hasImages,
+            transcriptMessages,
+            codeOnly
+        });
+        const { messagePayload, promptText } = this.buildProviderPayload({
+            attachments,
+            userPrompt,
+            systemPrompt,
+            hasImages,
+            stream
+        });
 
         const resolvedSessionId = sessionId || randomUUID();
         const messageId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -117,17 +127,32 @@ class AssistantService extends EventEmitter {
         if (!prompt) {
             throw new Error('Assistant prompt cannot be empty.');
         }
-        return this.finalizeDraft({ sessionId, messages: [{ text: prompt }], codeOnly: false, draftId: null });
+        const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        return this.finalizeDraft({
+            sessionId,
+            messages: [{ id: messageId, messageBy: 'user', message: prompt }],
+            codeOnly: false,
+            draftId: null
+        });
     }
 
-    combineUserText(messages) {
+    normalizeTranscriptMessages(messages) {
         if (!Array.isArray(messages) || messages.length === 0) {
-            return '';
+            return [];
         }
-        const pieces = messages
-            .map((msg) => (typeof msg?.text === 'string' ? msg.text.trim() : ''))
-            .filter(Boolean);
-        return pieces.join('\n');
+        const result = [];
+        for (const item of messages) {
+            const message = typeof item?.message === 'string' ? item.message : '';
+            if (!message) {
+                continue;
+            }
+            const messageBy = item?.messageBy === 'user' ? 'user' : 'interviewer';
+            const id = typeof item?.id === 'string' && item.id.length > 0
+                ? item.id
+                : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            result.push({ id, messageBy, message });
+        }
+        return result;
     }
 
     consumeDraft(draftId) {
@@ -159,33 +184,60 @@ class AssistantService extends EventEmitter {
         return { discarded: existed ? 1 : 0 };
     }
 
-    buildPrompts({ hasImages, textContent, codeOnly }) {
-        const systemPrompt = hasImages ? this.config.systemPrompts?.imageMode : this.config.systemPrompts?.textMode;
-        const hasText = Boolean(textContent);
-        const userPrompt = hasText
-            ? textContent
-            : (hasImages ? this.config.userPrompts?.imageDefault : '');
+    buildPrompts({ hasImages, transcriptMessages, codeOnly }) {
+        const systemPrompt = hasImages
+            ? this.config.systemPrompts?.imageMode
+            : this.config.systemPrompts?.textMode;
+
+        const transcriptJson = JSON.stringify({ messages: transcriptMessages }, null, 2);
+        const transcriptBlock = `Transcript context (chronological JSON):\n${transcriptJson}`;
+
+        const policyLines = [
+            'Review the transcript entries strictly in order and treat each object as an immutable fact.',
+            'If any entry from the interviewer contains a question or task, answer it directly using the transcript context even when images are attached.',
+            'Only rely on the image attachment(s) when the transcript lacks an actionable interviewer question.',
+            'When both transcript and images lack actionable requests, reply exactly with "No response returned".',
+            'Never merge or reorder transcript lines; preserve the meaning of each message id.'
+        ];
+
+        if (codeOnly) {
+            policyLines.push('When you produce code, output only the final code without commentary.');
+        }
+
+        const imageContextLine = hasImages
+            ? 'Image context: attachment(s) are available; use them only if the transcript provides no interview question to answer.'
+            : 'Image context: none provided.';
+
+        const userPrompt = [
+            transcriptBlock,
+            '',
+            'Speakers: "interviewer" refers to the system transcript, "user" refers to the microphone transcript.',
+            imageContextLine,
+            '',
+            'Response policy:',
+            policyLines.map((line) => `- ${line}`).join('\n')
+        ].join('\n');
 
         const stream = !hasImages; // image-first flows are single-response
-        const appliedPrompt = codeOnly && userPrompt
-            ? `${userPrompt}\n\n(If code is required, return only code.)`
-            : userPrompt;
 
-        return { systemPrompt: systemPrompt || '', userPrompt: appliedPrompt || '', stream };
+        return { systemPrompt: systemPrompt || '', userPrompt, stream };
     }
 
-    buildProviderPayload({ attachments, userPrompt, systemPrompt, hasImages, textContent, codeOnly }) {
+    buildProviderPayload({ attachments, userPrompt, systemPrompt, hasImages, stream }) {
         const providerName = (this.config.provider || 'ollama').toLowerCase();
         if (providerName === 'ollama') {
             if (hasImages) {
                 throw new Error('Current provider does not support image requests.');
             }
             const promptText = `${systemPrompt ? `${systemPrompt}\n\n` : ''}${userPrompt}`.trim();
-            return { messagePayload: null, promptText, stream: true };
+            return { messagePayload: null, promptText, stream };
         }
 
         if (providerName === 'anthropic') {
             const content = [];
+            if (userPrompt) {
+                content.push({ type: 'text', text: userPrompt });
+            }
             for (const attachment of attachments) {
                 content.push({
                     type: 'image',
@@ -196,11 +248,7 @@ class AssistantService extends EventEmitter {
                     }
                 });
             }
-            if (userPrompt) {
-                content.push({ type: 'text', text: userPrompt });
-            }
             const messages = content.length ? [{ role: 'user', content }] : [];
-            const stream = !hasImages;
             return {
                 promptText: null,
                 messagePayload: {
