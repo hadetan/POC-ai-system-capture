@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { cloneElement, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRecorder } from '../hooks/useRecorder';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
@@ -69,9 +69,6 @@ export default function ControlWindow({
     }, [isSelectingSource]);
 
     const micButtonLabel = useMemo(() => {
-        if (!isRecording) {
-            return 'Mic (start system first)';
-        }
         if (mic.isPending) {
             if (mic.pendingAction === 'stopping') {
                 return 'Stopping Mic…';
@@ -79,7 +76,7 @@ export default function ControlWindow({
             return 'Starting Mic…';
         }
         if (!mic.isReady) {
-            return 'Mic unavailable';
+            return 'Mic';
         }
         return mic.isActive ? 'Stop Mic' : 'Start Mic';
     }, [isRecording, mic]);
@@ -94,21 +91,12 @@ export default function ControlWindow({
         return !mic.isReady;
     }, [isRecording, mic]);
 
-    const micStatusMessage = useMemo(() => {
-        if (!isRecording) {
-            return 'Start system capture to enable microphone streaming.';
-        }
-        if (mic.isPending) {
-            return '';
-        }
+    useMemo(() => {
         if (mic.error) {
-            return mic.error;
-        }
-        if (!mic.isReady && !mic.isPending) {
-            return 'Awaiting microphone permission…';
+            console.error(mic.error);
         }
         return '';
-    }, [isRecording, mic]);
+    }, [mic]);
 
     const handleMicToggle = useCallback(async () => {
         if (isMicButtonDisabled) {
@@ -190,15 +178,6 @@ export default function ControlWindow({
                     {micButtonLabel}
                 </button>
             </div>
-            {micStatusMessage ? (
-                <div
-                    className={`control-hint ${mic.error ? 'control-hint-error' : ''}`}
-                    role="status"
-                    aria-live="polite"
-                >
-                    {micStatusMessage}
-                </div>
-            ) : null}
         </div>
     );
 }

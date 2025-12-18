@@ -55,8 +55,8 @@ class StreamingTranscriptionService extends EventEmitter {
         const client = this.createClient();
         const session = new LiveStreamingSession({
             sessionId,
-            sourceName: metadata.sourceName || 'unknown-source',
-            sourceType: metadata.sourceType || 'system',
+            sourceName: metadata.sourceName,
+            sourceType: metadata.sourceType,
             client,
             streamingConfig: this.config.streaming,
             ffmpegPath: metadata.ffmpegPath || this.ffmpegPath,
