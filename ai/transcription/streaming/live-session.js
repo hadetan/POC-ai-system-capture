@@ -71,12 +71,12 @@ class LiveStreamingSession extends EventEmitter {
         const vadCfg = this.streamingConfig.vad || {};
         this.vadConfig = {
             enabled: Boolean(vadCfg.enabled),
-            frameMs: vadCfg.frameMs,
-            aggressiveness: clampNumber(vadCfg.aggressiveness),
-            minSpeechRatio: clampNumber(vadCfg.minSpeechRatio),
-            speechHoldMs: Math.max(0, vadCfg.speechHoldMs),
-            silenceHoldMs: Math.max(0, vadCfg.silenceHoldMs),
-            fillerHoldMs: Math.max(0, vadCfg.fillerHoldMs)
+            frameMs: numOr(vadCfg.frameMs, 30),
+            aggressiveness: clampNumber(numOr(vadCfg.aggressiveness, 2), 0, 3),
+            minSpeechRatio: clampNumber(numOr(vadCfg.minSpeechRatio, 0.2), 0.01, 1),
+            speechHoldMs: Math.max(0, numOr(vadCfg.speechHoldMs, 300)),
+            silenceHoldMs: Math.max(0, numOr(vadCfg.silenceHoldMs, 200)),
+            fillerHoldMs: Math.max(0, numOr(vadCfg.fillerHoldMs, 600))
         };
         this.vadInstance = null;
         this.vadLastSpeechTs = 0;

@@ -1,8 +1,8 @@
 const SUPPORTED_FRAME_MS = new Set([10, 20, 30]);
 let wasmModulePromise = null;
 
-const clamp = (value, min, max) => {
-    if (Number.isNaN(value)) {
+const clamp = (value, min = 0, max = 3) => {
+    if (!Number.isFinite(value)) {
         return min;
     }
     return Math.min(max, Math.max(min, value));
@@ -34,7 +34,7 @@ class FvadInstance {
         this.module = module;
         this.sampleRate = options.sampleRate || 16000;
         this.frameMs = normalizeFrameMs(options.frameMs);
-        this.mode = clamp(Number.parseInt(options.aggressiveness, 10));
+        this.mode = clamp(Number.parseInt(options.aggressiveness, 10), 0, 3);
         this.frameSamples = Math.floor(this.sampleRate * (this.frameMs / 1000));
         this.frameBytes = this.frameSamples * 2;
         this.pending = Buffer.alloc(0);
