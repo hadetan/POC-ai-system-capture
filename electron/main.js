@@ -32,9 +32,7 @@ let assistantInitPromise = null;
 let assistantConfig = null;
 const assistantSessionWindowMap = new Map();
 
-const WINDOW_VERTICAL_GAP = 14;
-const WINDOW_TOP_MARGIN = 12;
-const MOVE_STEP_PX = 50;
+const MOVE_STEP_PX = 200;
 
 const argvFlags = parseArgvFlags();
 const offModeActive = computeOffModeActive(process.env, argvFlags);
@@ -80,8 +78,6 @@ const windowManager = createWindowManager({
     fsModule: fs,
     stealthModeEnabled,
     contentProtectionEnabledByDefault,
-    windowVerticalGap: WINDOW_VERTICAL_GAP,
-    windowTopMargin: WINDOW_TOP_MARGIN,
     moveStepPx: MOVE_STEP_PX,
     app
 });

@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const DEFAULT_TRANSCRIPT_WIDTH = 1080;
 const FALLBACK_TRANSCRIPT_HEIGHT = 520;
 const MIN_TRANSCRIPT_HEIGHT = 320;
+const CONTROL_WINDOW_WIDTH = 420;
+const CONTROL_WINDOW_HEIGHT = 64;
 
 const clampOverlaysWithinArea = (targets, workArea) => {
     const rects = targets.filter(Boolean);
@@ -78,8 +80,8 @@ const createWindowManager = ({
     pathModule = path,
     fsModule = fs,
     stealthModeEnabled = false,
-    windowVerticalGap = 14,
-    windowTopMargin = 12,
+    windowVerticalGap = 0,
+    windowTopMargin = 0,
     moveStepPx = 50,
     app
 }) => {
@@ -293,8 +295,8 @@ const createWindowManager = ({
         }
 
         controlWindow = new BrowserWindow({
-            width: 420,
-            height: 90,
+            width: CONTROL_WINDOW_WIDTH,
+            height: CONTROL_WINDOW_HEIGHT,
             transparent: true,
             frame: false,
             icon: blankNativeImage,
@@ -311,6 +313,7 @@ const createWindowManager = ({
             hiddenInMissionControl: stealthModeEnabled,
             acceptFirstMouse: true,
             webPreferences: overlayWebPreferences,
+            useContentSize: true,
         });
 
         if (stealthModeEnabled) {
@@ -358,9 +361,14 @@ const createWindowManager = ({
             return transcriptWindow;
         }
 
+        const anchorBounds = getControlBounds();
+        const workArea = resolveWorkArea(screen, anchorBounds);
+        const dynamicWidth = Math.max(1, Math.round((workArea.width || DEFAULT_TRANSCRIPT_WIDTH) * 0.5));
+        const dynamicHeight = Math.max(1, Math.round((workArea.height || FALLBACK_TRANSCRIPT_HEIGHT) * 0.9));
+
         transcriptWindow = new BrowserWindow({
-            width: DEFAULT_TRANSCRIPT_WIDTH,
-            height: FALLBACK_TRANSCRIPT_HEIGHT,
+            width: dynamicWidth,
+            height: dynamicHeight,
             transparent: true,
             frame: false,
             icon: blankNativeImage,
@@ -393,7 +401,7 @@ const createWindowManager = ({
         transcriptWindow.setFullScreenable(false);
 
         const { minHeight, maxHeight } = resolveTranscriptHeightBounds();
-        const initialHeight = Math.min(Math.max(FALLBACK_TRANSCRIPT_HEIGHT, minHeight), maxHeight);
+        const initialHeight = Math.min(Math.max(dynamicHeight, minHeight), maxHeight);
         resizeTranscriptWindow(initialHeight);
 
         transcriptWindow.once('ready-to-show', () => {
