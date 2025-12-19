@@ -227,7 +227,7 @@ const initializeApp = async () => {
     const moveDown = 'CommandOrControl+Down';
     shortcutManager.registerShortcut(moveDown, () => moveOverlaysBy(0, moveStepPx));
 
-    const visibilityToggleShortcut = 'CommandOrControl+Shift+Alt+B';
+    const visibilityToggleShortcut = 'CommandOrControl+Shift+B';
     shortcutManager.registerShortcut(visibilityToggleShortcut, () => {
         let controlWindow = getControlWindow();
         let transcriptWindow = getTranscriptWindow();

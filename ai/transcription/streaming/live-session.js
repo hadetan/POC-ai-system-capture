@@ -69,14 +69,21 @@ class LiveStreamingSession extends EventEmitter {
         this.maxReconnectAttempts = Math.max(1, numOr(this.streamingConfig.maxReconnectAttempts, 6));
         this.latestPcmStats = null;
         const vadCfg = this.streamingConfig.vad || {};
+        const vadEnabled = vadCfg.enabled !== undefined ? Boolean(vadCfg.enabled) : true;
+        const vadFrameMs = numOr(vadCfg.frameMs, 30);
+        const vadAggressiveness = clampNumber(numOr(vadCfg.aggressiveness, 2), 0, 3);
+        const vadMinSpeechRatio = clampNumber(numOr(vadCfg.minSpeechRatio, 0.2), 0.01, 1);
+        const vadSpeechHoldMs = Math.max(0, numOr(vadCfg.speechHoldMs, 300));
+        const vadSilenceHoldMs = Math.max(0, numOr(vadCfg.silenceHoldMs, 200));
+        const vadFillerHoldMs = Math.max(0, numOr(vadCfg.fillerHoldMs, 600));
         this.vadConfig = {
-            enabled: Boolean(vadCfg.enabled),
-            frameMs: vadCfg.frameMs,
-            aggressiveness: clampNumber(vadCfg.aggressiveness),
-            minSpeechRatio: clampNumber(vadCfg.minSpeechRatio),
-            speechHoldMs: Math.max(0, vadCfg.speechHoldMs),
-            silenceHoldMs: Math.max(0, vadCfg.silenceHoldMs),
-            fillerHoldMs: Math.max(0, vadCfg.fillerHoldMs)
+            enabled: vadEnabled,
+            frameMs: vadFrameMs,
+            aggressiveness: vadAggressiveness,
+            minSpeechRatio: vadMinSpeechRatio,
+            speechHoldMs: vadSpeechHoldMs,
+            silenceHoldMs: vadSilenceHoldMs,
+            fillerHoldMs: vadFillerHoldMs
         };
         this.vadInstance = null;
         this.vadLastSpeechTs = 0;
@@ -330,6 +337,11 @@ class LiveStreamingSession extends EventEmitter {
     }
 
     async initializeVad() {
+        if (!this.vadConfig.enabled) {
+            this.vadInstance = null;
+            log('info', `Session ${this.id} VAD disabled by configuration`);
+            return;
+        }
         if (this.vadInstance) {
             return;
         }

@@ -34,7 +34,8 @@ class FvadInstance {
         this.module = module;
         this.sampleRate = options.sampleRate || 16000;
         this.frameMs = normalizeFrameMs(options.frameMs);
-        this.mode = clamp(Number.parseInt(options.aggressiveness, 10));
+        const parsedMode = Number.parseInt(options.aggressiveness, 10);
+        this.mode = clamp(Number.isNaN(parsedMode) ? 2 : parsedMode, 0, 3);
         this.frameSamples = Math.floor(this.sampleRate * (this.frameMs / 1000));
         this.frameBytes = this.frameSamples * 2;
         this.pending = Buffer.alloc(0);

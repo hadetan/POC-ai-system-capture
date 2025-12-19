@@ -25,17 +25,14 @@ npm run dev
 ## Controls supported
 - `CTRL + SHIFT + /`: Start or Pause the streaming
 - `CTRL + SHIFT + [up/down]` arrow: Scroll up or down on conversation
-- `CTRL + ALT + G`: Clear conversation
+- `CTRL + SHIFT + G`: Clear conversation
 - `CTRL + [up/down/left/right]` arrow: Position top/bottom/left/right the windows
-- `CTRL + SHIFT + ALT + B`: Hide or show windows
-- `CTRL + SHIFT + ALT + ENTER`: Send the asked question to A.I.
-- `CTRL + ALT + H`: Attaches current screen as PNG image to give it to AI. Best use is to attach coding questions and it will return the solved code.
+- `CTRL + SHIFT + B`: Hide or show windows
+- `CTRL + ENTER`: Send the asked question to A.I.
+- `CTRL + SHIFT + H`: Attaches current screen as PNG image to give it to AI. Best use is to attach coding questions and it will return the solved code.
+- `CTRL + SHIFT + M`: Turn mic on or off
 
 ## Unsupported features
 - Validation on generated code.
     - Node vm.script(code)
     - python -m py_compile
-- Image > OCR > AI
-
-## Can be added
-- Google vision for accurate OCR.

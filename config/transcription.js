@@ -77,12 +77,13 @@ module.exports = function loadTranscriptionConfig() {
             reconnectBackoffMs: 750,
             maxReconnectAttempts: 6,
             vad: {
+                enabled: true,
                 frameMs: 30,
                 aggressiveness: clamp(2, 0, 3),
                 minSpeechRatio: clamp(0.2, 0.01, 1),
-                speechHoldMs: Math.max(0, 300),
-                silenceHoldMs: Math.max(0, 200),
-                fillerHoldMs: Math.max(0, 600)
+                speechHoldMs: 300,
+                silenceHoldMs: 200,
+                fillerHoldMs: 600
             },
             assemblyParams
         }
