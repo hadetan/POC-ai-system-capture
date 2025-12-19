@@ -134,7 +134,7 @@ const initializeApp = async () => {
 
     assistantConfig = loadAssistantConfig();
 
-    // Controller commands registry
+    /* Start the app */
     const toggleShortcut = 'CommandOrControl+Shift+/';
     shortcutManager.registerShortcut(toggleShortcut, () => {
         const targets = [getControlWindow(), getTranscriptWindow()]
@@ -144,6 +144,7 @@ const initializeApp = async () => {
         });
     });
 
+    /* Scroll up and down in conversion */
     const scrollUpShortcut = 'CommandOrControl+Shift+Up';
     shortcutManager.registerShortcut(scrollUpShortcut, () => {
         const transcriptWindow = getTranscriptWindow();
@@ -160,6 +161,7 @@ const initializeApp = async () => {
         }
     });
 
+    /* Clear conversation history */
     const clearTranscriptShortcut = 'CommandOrControl+Shift+G';
     shortcutManager.registerShortcut(clearTranscriptShortcut, () => {
         const transcriptWindow = getTranscriptWindow();
@@ -168,6 +170,7 @@ const initializeApp = async () => {
         }
     });
 
+    /* Turn mic on or off */
     const toggleMicShortcut = 'CommandOrControl+Shift+M';
     shortcutManager.registerShortcut(toggleMicShortcut, () => {
         const controlWindow = getControlWindow();
@@ -180,6 +183,7 @@ const initializeApp = async () => {
     let attachImageShortcut = null;
 
     if (assistantEnabled) {
+        /* Send conversation and attachments to AI */
         const assistantShortcut = 'CommandOrControl+Enter';
         shortcutManager.registerShortcut(assistantShortcut, () => {
             const transcriptWindow = getTranscriptWindow();
@@ -188,6 +192,7 @@ const initializeApp = async () => {
             }
         });
 
+        /* Attach current screen as full screenshot */
         attachImageShortcut = 'CommandOrControl+Shift+H';
         shortcutManager.registerShortcut(attachImageShortcut, async () => {
             const transcriptWindow = getTranscriptWindow();
@@ -215,6 +220,7 @@ const initializeApp = async () => {
         });
     }
 
+    /* Control apps position */
     const moveLeft = 'CommandOrControl+Left';
     shortcutManager.registerShortcut(moveLeft, () => moveOverlaysBy(-moveStepPx, 0));
 
@@ -227,6 +233,10 @@ const initializeApp = async () => {
     const moveDown = 'CommandOrControl+Down';
     shortcutManager.registerShortcut(moveDown, () => moveOverlaysBy(0, moveStepPx));
 
+    /* Gracefully quit app */
+    const quitAppShortcut = 'CommandOrControl+Alt+Shift+Q';
+
+    /* Hide or unhide the app */
     const visibilityToggleShortcut = 'CommandOrControl+Shift+B';
     shortcutManager.registerShortcut(visibilityToggleShortcut, () => {
         let controlWindow = getControlWindow();
@@ -255,7 +265,7 @@ const initializeApp = async () => {
             });
 
             const allowedShortcuts = new Set(
-                [visibilityToggleShortcut, attachImageShortcut, toggleMicShortcut].filter(Boolean)
+                [visibilityToggleShortcut, attachImageShortcut, toggleMicShortcut, quitAppShortcut].filter(Boolean)
             );
             shortcutManager.unregisterAllShortcutsExcept(allowedShortcuts);
             return;
@@ -278,6 +288,11 @@ const initializeApp = async () => {
 
         shortcutManager.registerAllShortcuts();
         positionOverlayWindows();
+    });
+
+    shortcutManager.registerShortcut(quitAppShortcut, () => {
+        console.log('[Shortcut] Quit shortcut invoked.');
+        app.quit();
     });
 
     screen.on('display-metrics-changed', positionOverlayWindows);
