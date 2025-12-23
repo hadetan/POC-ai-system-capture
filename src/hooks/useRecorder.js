@@ -12,9 +12,6 @@ const buildVideoConstraints = (sourceId) => ({
     }
 });
 const buildAudioConstraints = (sourceId, platform) => {
-    if (platform === 'darwin') {
-        return false;
-    }
     return {
         mandatory: {
             chromeMediaSource: 'desktop',
@@ -365,6 +362,7 @@ export function useRecorder({
 
             captureStreamRef.current = stream;
             const audioTracks = stream.getAudioTracks();
+
             if (!audioTracks.length) {
                 stream.getTracks().forEach((track) => track.stop());
                 captureStreamRef.current = null;
@@ -447,7 +445,13 @@ export function useRecorder({
             setIsRecording(true);
             return { ok: true };
         } catch (error) {
-            console.error('Failed to obtain capture stream', error);
+            console.error('[AUDIO DEBUG] Failed to obtain capture stream', error);
+            console.error('[AUDIO DEBUG] Error details:', {
+                message: error?.message,
+                name: error?.name,
+                code: error?.code,
+                stack: error?.stack
+            });
             sessionApi.setStatus(`Failed to capture system audio: ${error?.message || error}`);
             await stopCapture();
             return { ok: false, error, reason: 'error' };
@@ -470,12 +474,15 @@ export function useRecorder({
         sessionApi.setStatus('Requesting capture sources…');
         try {
             const sources = await electronAPI.getDesktopSources({ types: ['screen', 'window'] });
+
             if (!sources?.length) {
                 setIsSelectingSource(false);
                 sessionApi.setStatus('No sources returned.');
                 return;
             }
+
             const result = await startStreamingWithSource(sources[0], stopToken);
+
             if (!result?.ok && result?.reason === 'cancelled') {
                 sessionApi.setStatus('Idle');
             }
