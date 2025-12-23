@@ -22,3 +22,19 @@ export const initialTranscriptText = ({ delta, serverText }) => {
     }
     return '';
 };
+
+export const isTranscriptRollback = ({ previousText, nextText, isFinal, hasServerText }) => {
+    if (isFinal) {
+        return false;
+    }
+    if (!hasServerText) {
+        return false;
+    }
+    if (!hasValue(previousText) || typeof nextText !== 'string') {
+        return false;
+    }
+    if (nextText.length >= previousText.length) {
+        return false;
+    }
+    return previousText.startsWith(nextText);
+};

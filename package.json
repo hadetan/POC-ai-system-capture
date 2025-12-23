@@ -5,6 +5,7 @@
   "main": "server/electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm:build:renderer\" \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "debug": "cross-env ELECTRON_ENABLE_LOGGING=true npm run dev",
     "dev:renderer": "vite",
     "dev:electron": "wait-on http://127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .",
     "start": "electron .",

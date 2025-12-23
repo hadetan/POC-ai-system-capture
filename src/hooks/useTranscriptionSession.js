@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { initialTranscriptText, resolveTranscriptText } from '../utils/transcriptText';
+import { initialTranscriptText, resolveTranscriptText, isTranscriptRollback } from '../utils/transcriptText';
 import { buildAttachmentPreview, mergeAttachmentPreviews } from '../utils/attachmentPreview';
 import { mergeAssistantText } from '../utils/assistantMessage';
 
@@ -73,11 +73,15 @@ export function useTranscriptionSession({ isControlWindow }) {
                 pendingMessageId: null,
                 continuationMessageId: null,
                 lastMessageUpdateTs: 0,
-                isStreaming: false
+                isStreaming: false,
+                lastServerText: ''
             };
             map.set(sessionId, tracker);
         } else if (sourceTypeHint && tracker.sourceType !== sourceTypeHint) {
             tracker.sourceType = sourceTypeHint;
+        }
+        if (typeof tracker.lastServerText !== 'string') {
+            tracker.lastServerText = '';
         }
         return tracker;
     }, []);
@@ -200,6 +204,7 @@ export function useTranscriptionSession({ isControlWindow }) {
             tracker.pendingMessageId = null;
             tracker.continuationMessageId = null;
             tracker.lastMessageUpdateTs = 0;
+            tracker.lastServerText = '';
         });
         setMessages([]);
         messagesRef.current = [];
@@ -377,69 +382,95 @@ export function useTranscriptionSession({ isControlWindow }) {
         if (!tracker) {
             return;
         }
-        const serverText = typeof payload.text === 'string' ? payload.text : '';
-        const delta = typeof payload.delta === 'string' ? payload.delta : '';
+
+        const serverText = (() => {
+            if (typeof payload.text === 'string') return payload.text;
+            if (typeof payload.transcript === 'string') return payload.transcript;
+            if (typeof payload.message === 'string') return payload.message;
+            if (typeof payload.partial === 'string') return payload.partial;
+            return '';
+        })();
+        const delta = (() => {
+            if (typeof payload.delta === 'string') return payload.delta;
+            if (typeof payload.chars === 'string') return payload.chars;
+            if (typeof payload.partial === 'string') return payload.partial;
+            return '';
+        })();
         const isFinal = Boolean(payload.isFinal);
         const hasDelta = delta.length > 0;
         const hasServerText = serverText.length > 0;
-        const now = Date.now();
-        const lastUpdateTs = tracker.lastMessageUpdateTs || 0;
-        const canContinue = lastUpdateTs > 0 && (now - lastUpdateTs) <= CONTINUATION_LINGER_MS;
-        const continuationId = canContinue ? tracker.continuationMessageId : null;
-        if (!canContinue) {
-            tracker.continuationMessageId = null;
-        }
         if (!hasDelta && !hasServerText) {
             return;
         }
+
+        const now = Date.now();
+        const lastUpdateTs = tracker.lastMessageUpdateTs || 0;
+        const canContinue = lastUpdateTs > 0 && (now - lastUpdateTs) <= CONTINUATION_LINGER_MS;
         const textContext = { delta, serverText };
+        const previousAbsolute = tracker.lastServerText || '';
+        const candidateAbsolute = resolveTranscriptText(previousAbsolute, textContext);
+        const rollbackDetected = isTranscriptRollback({
+            previousText: previousAbsolute,
+            nextText: candidateAbsolute,
+            isFinal,
+            hasServerText
+        });
+        const previousMessageId = tracker.pendingMessageId || tracker.continuationMessageId;
+        const continuationId = canContinue && !rollbackDetected ? tracker.continuationMessageId : null;
+
+        if (!canContinue || rollbackDetected) {
+            tracker.continuationMessageId = null;
+        }
+
         setMessages((prev) => {
             const next = [...prev];
-            const pendingId = tracker.pendingMessageId;
-            const targetId = pendingId || continuationId;
+            let forceNewMessage = rollbackDetected;
+            let targetId = forceNewMessage ? null : (tracker.pendingMessageId || continuationId);
 
-            if (!isFinal) {
-                if (targetId) {
-                    const updated = next.map((msg) => {
-                        if (msg.id !== targetId) return msg;
-                        const updatedText = resolveTranscriptText(msg.text, textContext);
-                        return { ...msg, text: updatedText, isFinal: false, sourceType: tracker.sourceType };
-                    });
-                    tracker.pendingMessageId = targetId;
-                    tracker.continuationMessageId = targetId;
-                    tracker.lastMessageUpdateTs = now;
-                    return updated;
+            if (!forceNewMessage && targetId) {
+                const targetIndex = next.findIndex((msg) => msg.id === targetId);
+                if (targetIndex !== -1) {
+                    const current = next[targetIndex];
+                    const updatedText = resolveTranscriptText(current.text, textContext);
+                    const shrank = !isFinal && typeof current.text === 'string' && updatedText.length < current.text.length;
+                    if (shrank) {
+                        forceNewMessage = true;
+                    } else {
+                        next[targetIndex] = { ...current, text: updatedText, isFinal, sourceType: tracker.sourceType };
+                        tracker.pendingMessageId = isFinal ? null : targetId;
+                        tracker.continuationMessageId = isFinal ? null : targetId;
+                        tracker.lastMessageUpdateTs = now;
+                        tracker.lastServerText = isFinal ? '' : candidateAbsolute;
+                        return next;
+                    }
+                } else {
+                    targetId = null;
                 }
-                const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                tracker.pendingMessageId = id;
-                tracker.continuationMessageId = id;
-                tracker.lastMessageUpdateTs = now;
-                const initialText = initialTranscriptText(textContext);
-                if (initialText) {
-                    next.push({ id, text: initialText, isFinal: false, ts: now, side: 'left', sent: false, sourceType: tracker.sourceType });
-                }
-                return next;
             }
 
-            if (targetId) {
+            if (forceNewMessage && previousMessageId) {
+                const existingIndex = next.findIndex((msg) => msg.id === previousMessageId);
+                if (existingIndex !== -1 && !next[existingIndex].isFinal) {
+                    next[existingIndex] = { ...next[existingIndex], isFinal: true };
+                }
                 tracker.pendingMessageId = null;
-                tracker.continuationMessageId = targetId;
-                tracker.lastMessageUpdateTs = now;
-                return next.map((msg) => {
-                    if (msg.id !== targetId) return msg;
-                    const finalizedText = resolveTranscriptText(msg.text, textContext);
-                    return { ...msg, text: finalizedText, isFinal: true, sourceType: tracker.sourceType };
-                });
+                tracker.continuationMessageId = null;
+                tracker.lastServerText = '';
+                tracker.lastMessageUpdateTs = 0;
             }
 
             const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            tracker.pendingMessageId = null;
-            tracker.continuationMessageId = id;
-            tracker.lastMessageUpdateTs = now;
-            const initialText = initialTranscriptText(textContext);
-            if (initialText) {
-                next.push({ id, text: initialText, isFinal: true, ts: now, side: 'left', sent: false, sourceType: tracker.sourceType });
+            const initialText = candidateAbsolute || initialTranscriptText(textContext);
+            if (!initialText) {
+                return next;
             }
+
+            tracker.pendingMessageId = isFinal ? null : id;
+            tracker.continuationMessageId = isFinal ? null : id;
+            tracker.lastMessageUpdateTs = now;
+            tracker.lastServerText = isFinal ? '' : candidateAbsolute;
+
+            next.push({ id, text: initialText, isFinal, ts: now, side: 'left', sent: false, sourceType: tracker.sourceType });
             return next;
         });
     }, []);
@@ -455,7 +486,8 @@ export function useTranscriptionSession({ isControlWindow }) {
                 return;
             }
             if (isControlWindow && !sessionTrackersRef.current.has(eventSessionId)) {
-                return;
+                // Accept the event but backfill the tracker to avoid silently dropping updates
+                ensureSessionTracker(eventSessionId, payload.sourceType);
             }
 
             const tracker = ensureSessionTracker(eventSessionId, payload.sourceType);
