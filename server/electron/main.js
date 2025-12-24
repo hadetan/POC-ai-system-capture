@@ -245,7 +245,7 @@ const initializeApp = async () => {
     shortcutManager.registerShortcut(moveDown, () => moveOverlaysBy(0, moveStepPx));
 
     /* Gracefully quit app */
-    const quitAppShortcut = 'CommandOrControl+Alt+Shift+Q';
+    const quitAppShortcut = 'Alt+Shift+Q';
 
     /* Hide or unhide the app */
     const visibilityToggleShortcut = 'CommandOrControl+Shift+B';

@@ -30,7 +30,7 @@ _Currently this is fully supported on windows OS only_
     ```
 
     -   Configure BlackHole in **Audio MIDI Setup**:
-        1. Create a **Multi-Output Device** that includes both _MacBook Pro Speakers_ (or your preferred hardware output) and _BlackHole 2ch_. Keep the _Drift Correction_ check marked for Internal Microphone (for example _MacBook Pro Microphone_).
+        1. Create a **Multi-Output Device** that includes both _MacBook Pro Microphone_  and _BlackHole 2ch_. Keep the _Drift Correction_ check marked for Internal Microphone (for example _MacBook Pro Microphone_).
         2. Keep the **sound input** pointed at your physical microphone (for example _MacBook Pro Microphone_).
 
 -   **Windows**: Windows 10/11 with desktop capture permissions enabled.
@@ -58,7 +58,7 @@ npm run dev
 -   `CTRL or CMD + ENTER`: Send the asked question to A.I.
 -   `CTRL or CMD + SHIFT + H`: Attaches current screen as PNG image to give it to AI. Best use is to attach coding questions and it will return the solved code.
 -   `CTRL or CMD + SHIFT + M`: Turn mic on or off
--   `CTRL or CMD + ALT or OPTION + SHIFT + Q`: Quit app
+-   `ALT or OPTION + SHIFT + Q`: Quit app
 
 ## Unsupported features
 
