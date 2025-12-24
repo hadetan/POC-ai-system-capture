@@ -1,7 +1,4 @@
-if (typeof document !== 'undefined' && document.getElementById && document.getElementById('root')) {
-    console.debug('Detected React root; skipping legacy renderer to avoid duplicate capture.');
-} else {
-    const startButton = document.getElementById('start');
+const startButton = document.getElementById('start');
 const stopButton = document.getElementById('stop');
 const statusLabel = document.getElementById('status');
 const transcriptOutput = document.getElementById('transcript-output');
@@ -595,6 +592,4 @@ function resolveWarningMessage(payload = {}) {
         return payload.message;
     }
     return 'Unknown warning';
-}
-
 }
