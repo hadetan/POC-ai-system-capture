@@ -370,7 +370,9 @@ body {
 
 .guide-grid {
     display: flex;
-    justify-content: space-evenly;
+    flex-direction: column;
+    gap: 0.6rem;
+    width: 100%;
 }
 
 .guide-action {
@@ -401,14 +403,14 @@ body {
 }
 
 .guide-card {
-    background: rgba(5, 11, 23, 0.6);
+    background: rgba(5, 11, 23, 0.72);
     border: 1px solid rgba(71, 85, 105, 0.55);
     border-radius: 14px;
-    padding: 0.55rem 0.65rem;
+    padding: 0.7rem 0.85rem;
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
-    min-width: 0;
+    gap: 0.55rem;
+    width: 100%;
 }
 
 .guide-card-head {
@@ -442,7 +444,7 @@ body {
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.45rem;
 }
 
 .guide-shortcut {
@@ -450,19 +452,25 @@ body {
     justify-content: space-between;
     align-items: center;
     gap: 0.55rem;
-    margin-bottom: 5px;
+    padding: 0.5rem 0.65rem;
+    border-radius: 10px;
+    border: 1px solid rgba(100, 116, 139, 0.45);
+    background: rgba(15, 23, 42, 0.6);
+    flex-wrap: wrap;
 }
 
 .guide-shortcut-label {
     font-size: 0.72rem;
     color: rgba(203, 213, 225, 0.93);
     letter-spacing: 0.02em;
+    flex: 1 1 140px;
 }
 
 .guide-shortcut-keys {
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.25rem;
 }
 
@@ -640,14 +648,18 @@ body {
     }
 
     .guide-grid {
-        grid-template-columns: 1fr;
-        gap: 0.5rem;
+        gap: 0.45rem;
     }
 
     .guide-shortcut {
         flex-direction: column;
         align-items: flex-start;
-        gap: 0.3rem;
+        gap: 0.35rem;
+        justify-content: flex-start;
+    }
+
+    .guide-shortcut-keys {
+        justify-content: flex-start;
     }
 
     .transcript-guide-collapsed {
