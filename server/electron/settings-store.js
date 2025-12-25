@@ -94,12 +94,46 @@ const createSettingsStore = ({
         return store.assistant;
     };
 
+    const getPermissionsState = (platform = process.platform) => {
+        const store = loadAll();
+        if (typeof store.permissions !== 'object' || store.permissions === null) {
+            return {};
+        }
+        const platformKey = typeof platform === 'string' && platform ? platform : 'default';
+        const platformState = store.permissions[platformKey];
+        if (typeof platformState === 'object' && platformState !== null) {
+            return { ...platformState };
+        }
+        return {};
+    };
+
+    const setPermissionsState = (platform = process.platform, nextState = {}) => {
+        const store = loadAll();
+        if (typeof store.permissions !== 'object' || store.permissions === null) {
+            store.permissions = {};
+        }
+        const platformKey = typeof platform === 'string' && platform ? platform : 'default';
+        const current = typeof store.permissions[platformKey] === 'object' && store.permissions[platformKey] !== null
+            ? store.permissions[platformKey]
+            : {};
+        const merged = {
+            ...current,
+            ...nextState,
+            updatedAt: Date.now()
+        };
+        store.permissions[platformKey] = merged;
+        saveAll(store);
+        return { ...merged };
+    };
+
     return {
         resolveFilePath,
         loadAll,
         saveAll,
         getAssistantSettings,
-        setAssistantSettings
+        setAssistantSettings,
+        getPermissionsState,
+        setPermissionsState
     };
 };
 

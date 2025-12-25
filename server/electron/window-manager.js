@@ -100,6 +100,8 @@ const createWindowManager = ({
     let lastAppliedTranscriptHeight = FALLBACK_TRANSCRIPT_HEIGHT;
     let settingsWindow = null;
     let overlayVisibilitySnapshot = null;
+    let permissionWindow = null;
+    let permissionCheckWindow = null;
 
     const getControlBounds = () => (controlWindow && !controlWindow.isDestroyed() ? controlWindow.getBounds() : null);
     const getTranscriptBounds = () => (transcriptWindow && !transcriptWindow.isDestroyed() ? transcriptWindow.getBounds() : null);
@@ -574,11 +576,157 @@ const createWindowManager = ({
         return settingsWindow;
     };
 
+    const getPermissionWindow = () => (permissionWindow && !permissionWindow.isDestroyed() ? permissionWindow : null);
+
+    const destroyPermissionWindow = ({ restoreOverlays = true } = {}) => {
+        if (!permissionWindow || permissionWindow.isDestroyed()) {
+            permissionWindow = null;
+            if (restoreOverlays) {
+                restoreOverlayWindows();
+            }
+            return;
+        }
+        try {
+            permissionWindow.close();
+        } catch (error) {
+            console.warn('[WindowManager] Failed to close permission window', error);
+        } finally {
+            permissionWindow = null;
+            if (restoreOverlays) {
+                restoreOverlayWindows();
+            }
+        }
+    };
+
+    const createPermissionWindow = () => {
+        if (permissionWindow && !permissionWindow.isDestroyed()) {
+            if (!permissionWindow.isVisible()) {
+                permissionWindow.show();
+            }
+            permissionWindow.focus();
+            return permissionWindow;
+        }
+
+        hideOverlayWindows();
+
+        permissionWindow = new BrowserWindow({
+            width: 720,
+            height: 640,
+            frame: true,
+            transparent: false,
+            resizable: true,
+            movable: true,
+            minimizable: false,
+            maximizable: false,
+            autoHideMenuBar: true,
+            show: false,
+            backgroundColor: '#1f1f1f',
+            modal: false,
+            webPreferences: {
+                preload: pathModule.join(__dirname, 'preload.js'),
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: false
+            }
+        });
+
+        permissionWindow.once('ready-to-show', () => {
+            permissionWindow?.show();
+            permissionWindow?.focus();
+        });
+
+        permissionWindow.on('closed', () => {
+            permissionWindow = null;
+            restoreOverlayWindows();
+        });
+
+        loadRendererForWindow(permissionWindow, 'permissions');
+        return permissionWindow;
+    };
+
+    const getPermissionCheckWindow = () => (permissionCheckWindow && !permissionCheckWindow.isDestroyed() ? permissionCheckWindow : null);
+
+    const destroyPermissionCheckWindow = () => {
+        if (!permissionCheckWindow || permissionCheckWindow.isDestroyed()) {
+            permissionCheckWindow = null;
+            return;
+        }
+        try {
+            permissionCheckWindow.close();
+        } catch (error) {
+            console.warn('[WindowManager] Failed to close permission check window', error);
+        } finally {
+            permissionCheckWindow = null;
+        }
+    };
+
+    const createPermissionCheckWindow = () => {
+        if (permissionCheckWindow && !permissionCheckWindow.isDestroyed()) {
+            return permissionCheckWindow;
+        }
+
+        permissionCheckWindow = new BrowserWindow({
+            width: CONTROL_WINDOW_WIDTH,
+            height: 160,
+            transparent: true,
+            frame: false,
+            icon: blankNativeImage,
+            skipTaskbar: stealthModeEnabled,
+            autoHideMenuBar: true,
+            resizable: false,
+            movable: false,
+            minimizable: false,
+            maximizable: false,
+            focusable: !stealthModeEnabled,
+            show: false,
+            hasShadow: false,
+            backgroundColor: '#00000000',
+            hiddenInMissionControl: stealthModeEnabled,
+            acceptFirstMouse: true,
+            webPreferences: overlayWebPreferences,
+            useContentSize: true
+        });
+
+        if (stealthModeEnabled) {
+            permissionCheckWindow.setAlwaysOnTop(true, 'screen-saver');
+            permissionCheckWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+            permissionCheckWindow.setIgnoreMouseEvents(true, { forward: true });
+        } else {
+            permissionCheckWindow.setAlwaysOnTop(true, 'normal');
+            permissionCheckWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+            permissionCheckWindow.setIgnoreMouseEvents(false);
+        }
+        permissionCheckWindow.setFullScreenable(false);
+
+        permissionCheckWindow.once('ready-to-show', () => {
+            if (stealthModeEnabled && typeof permissionCheckWindow?.showInactive === 'function') {
+                permissionCheckWindow.showInactive();
+                permissionCheckWindow.setIgnoreMouseEvents(true, { forward: true });
+            } else {
+                permissionCheckWindow?.show();
+                permissionCheckWindow?.focus();
+            }
+        });
+
+        permissionCheckWindow.on('closed', () => {
+            permissionCheckWindow = null;
+        });
+
+        loadRendererForWindow(permissionCheckWindow, 'permissions-check');
+        return permissionCheckWindow;
+    };
+
     return {
         createControlWindow,
         createTranscriptWindow,
         createSettingsWindow,
         destroySettingsWindow,
+        createPermissionWindow,
+        getPermissionWindow,
+        destroyPermissionWindow,
+        createPermissionCheckWindow,
+        getPermissionCheckWindow,
+        destroyPermissionCheckWindow,
         positionOverlayWindows,
         moveOverlaysBy,
         getControlWindow,

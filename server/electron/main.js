@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, globalShortcut, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, globalShortcut, nativeImage, systemPreferences, shell } = require('electron');
 const loadTranscriptionConfig = require('../config/transcription');
 const loadAssistantConfig = require('../config/assistant');
 const { createTranscriptionService } = require('../ai/transcription');
@@ -19,6 +19,8 @@ const { registerAssistantHandlers } = require('./ipc/assistant');
 const { createSecureStore } = require('./secure-store');
 const { createSettingsStore } = require('./settings-store');
 const { registerSettingsHandlers } = require('./ipc/settings');
+const { registerPermissionsHandlers } = require('./ipc/permissions');
+const { checkMacPermissions, shouldDisplayPermissionWindow } = require('./permissions');
 
 loadEnv();
 
@@ -236,6 +238,12 @@ const initializeApp = async () => {
         createTranscriptWindow,
         createSettingsWindow,
         destroySettingsWindow,
+        createPermissionWindow,
+        getPermissionWindow,
+        destroyPermissionWindow,
+        createPermissionCheckWindow,
+        getPermissionCheckWindow,
+        destroyPermissionCheckWindow,
         moveStepPx
     } = windowManager;
 
@@ -269,10 +277,99 @@ const initializeApp = async () => {
         destroySettingsWindow();
     };
 
+    const dispatchPermissionStateToWindow = (targetWindow, state) => {
+        if (!targetWindow || targetWindow.isDestroyed() || !targetWindow.webContents) {
+            return;
+        }
+        const send = () => {
+            try {
+                targetWindow.webContents.send('permissions:update', state);
+            } catch (error) {
+                console.warn('[Permissions] Failed to send state to window', error);
+            }
+        };
+        try {
+            if (targetWindow.webContents.isLoadingMainFrame()) {
+                targetWindow.webContents.once('did-finish-load', send);
+            } else {
+                send();
+            }
+        } catch (error) {
+            console.warn('[Permissions] WebContents state access failed', error);
+        }
+    };
+
+    const broadcastPermissionState = (state) => {
+        if (!state) {
+            return;
+        }
+        const targets = [
+            typeof getPermissionWindow === 'function' ? getPermissionWindow() : null,
+            typeof getPermissionCheckWindow === 'function' ? getPermissionCheckWindow() : null
+        ].filter((win) => win && !win.isDestroyed());
+        targets.forEach((win) => dispatchPermissionStateToWindow(win, state));
+    };
+
+    const evaluateMacPermissions = ({ showCheckWindow = false } = {}) => {
+        if (process.platform !== 'darwin') {
+            return { granted: true, needsAttention: false, state: null };
+        }
+
+        let checkWindow = null;
+        if (showCheckWindow && typeof createPermissionCheckWindow === 'function') {
+            checkWindow = createPermissionCheckWindow();
+        }
+
+        const state = checkMacPermissions({ systemPreferences, settingsStore });
+        broadcastPermissionState(state);
+        const needsAttention = shouldDisplayPermissionWindow(state);
+
+        if (checkWindow && typeof destroyPermissionCheckWindow === 'function') {
+            destroyPermissionCheckWindow();
+        }
+
+        if (!needsAttention) {
+            if (typeof destroyPermissionWindow === 'function') {
+                destroyPermissionWindow({ restoreOverlays: true });
+            }
+            return { granted: true, needsAttention: false, state };
+        }
+
+        if (typeof createPermissionWindow === 'function') {
+            const permissionWindow = createPermissionWindow();
+            dispatchPermissionStateToWindow(permissionWindow, state);
+        }
+
+        return { granted: false, needsAttention: true, state };
+    };
+
+    if (process.platform === 'darwin') {
+        registerPermissionsHandlers({
+            ipcMain,
+            systemPreferences,
+            shell,
+            settingsStore,
+            onPermissionsGranted: async () => {
+                if (typeof destroyPermissionWindow === 'function') {
+                    destroyPermissionWindow({ restoreOverlays: true });
+                }
+                if (assistantMissingPrerequisites()) {
+                    ensureSettingsWindowVisible();
+                    return;
+                }
+                ensureOverlayWindowsVisible();
+                shortcutManager.registerAllShortcuts();
+            }
+        });
+    }
+
     if (assistantMissingPrerequisites()) {
         ensureSettingsWindowVisible();
     } else {
-        ensureOverlayWindowsVisible();
+        const permissionOutcome = evaluateMacPermissions({ showCheckWindow: true });
+        if (permissionOutcome.granted) {
+            ensureOverlayWindowsVisible();
+        }
     }
 
     registerSettingsHandlers({
@@ -284,8 +381,11 @@ const initializeApp = async () => {
         onSettingsApplied: async () => {
             const updatedConfig = await synchronizeAssistantConfiguration();
             if (updatedConfig && updatedConfig.isEnabled) {
-                ensureOverlayWindowsVisible();
-                shortcutManager.registerAllShortcuts();
+                const permissionOutcome = evaluateMacPermissions({ showCheckWindow: true });
+                if (permissionOutcome.granted) {
+                    ensureOverlayWindowsVisible();
+                    shortcutManager.registerAllShortcuts();
+                }
             }
         }
     });

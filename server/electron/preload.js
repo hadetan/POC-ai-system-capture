@@ -170,4 +170,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         movementHandledGlobally: true
     }
+        permissions: {
+            check: () => ipcRenderer.invoke('permissions:check'),
+            requestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
+            openSystemSettings: (target) => ipcRenderer.invoke('permissions:open-settings', target),
+            storeSystemAudio: (payload) => ipcRenderer.invoke('permissions:store-system-audio', payload),
+            acknowledge: () => ipcRenderer.invoke('permissions:acknowledge'),
+            onUpdate: (callback) => {
+                if (typeof callback !== 'function') {
+                    return () => {};
+                }
+                const listener = (_event, state) => callback(state);
+                ipcRenderer.on('permissions:update', listener);
+                return () => ipcRenderer.removeListener('permissions:update', listener);
+            }
+        }
 });
