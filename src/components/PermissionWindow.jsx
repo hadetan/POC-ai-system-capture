@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const DEFAULT_STATUS = {
@@ -152,6 +152,21 @@ function PermissionWindow() {
         };
     }, [reloadPermissionState]);
 
+    const hasAcknowledgedRef = useRef(false);
+    const allPermissionsGranted = currentState.microphone.granted && currentState.screenCapture.granted;
+
+    useEffect(() => {
+        if (!allPermissionsGranted) {
+            hasAcknowledgedRef.current = false;
+            return;
+        }
+        if (hasAcknowledgedRef.current) {
+            return;
+        }
+        hasAcknowledgedRef.current = true;
+        acknowledgePermissions();
+    }, [allPermissionsGranted, acknowledgePermissions]);
+
     const microphoneStatus = formatStatus(currentState.microphone);
     const screenStatus = formatStatus(currentState.screenCapture);
 
@@ -161,7 +176,7 @@ function PermissionWindow() {
                 <h1>Screen &amp; Microphone Access Required</h1>
                 <p>
                     To record your screen with system audio and your microphone we need a couple of permissions.
-                    Complete the steps below to continue.
+                    Complete the steps below and we'll move ahead automatically once everything looks good.
                 </p>
             </header>
 
@@ -212,23 +227,6 @@ function PermissionWindow() {
                     {infoMessage}
                 </div>
             )}
-
-            <footer className="permission-window__footer">
-                <button type="button" disabled={isBusy} onClick={reloadPermissionState}>
-                    I enabled permissions — Re-check
-                </button>
-                <button
-                    type="button"
-                    disabled={
-                        isBusy
-                        || !currentState.microphone.granted
-                        || !currentState.screenCapture.granted
-                    }
-                    onClick={acknowledgePermissions}
-                >
-                    Continue
-                </button>
-            </footer>
         </div>
     );
 }
