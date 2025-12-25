@@ -268,7 +268,7 @@ body {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: rgba(148, 163, 184, 0.6);
+    background: rgba(204, 213, 224, 0.6);
     box-shadow: 0 0 12px rgba(148, 163, 184, 0.5);
 }
 
@@ -280,7 +280,15 @@ body {
 .heading-chip {
     font-size: 0.75rem;
     letter-spacing: 0.3em;
-    color: rgba(148, 163, 184, 0.85);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.heading-shortcut-hint {
+    margin-left: auto;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: none;
+    color: rgba(226, 232, 240, 0.7);
 }
 
 .heading-status {
@@ -533,11 +541,17 @@ body {
     border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
+.chat-bubble-attachments-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-bottom: 0.4rem;
+}
+
 .chat-bubble-attachments {
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
-    margin-bottom: 0.4rem;
 }
 
 .chat-bubble-attachment {
@@ -547,6 +561,13 @@ body {
     border: 1px solid rgba(148, 163, 184, 0.45);
     object-fit: cover;
     background: rgba(15, 23, 42, 0.4);
+}
+
+.chat-bubble-attachment-hint {
+    font-size: 0.75rem;
+    color: rgba(165, 180, 203, 0.75);
+    font-style: italic;
+    padding-left: 0.2rem;
 }
 
 .chat-bubble-content {

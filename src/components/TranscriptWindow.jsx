@@ -1,37 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import ChatBubble from './ChatBubble';
 import { useTranscriptScroll } from '../hooks/useTranscriptScroll';
+import { getAltModifierKey, getPrimaryModifierKey } from '../utils/osDetection';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const SCROLL_STEP_PX = 280;
-
-const SHORTCUT_SECTIONS = [
-    {
-        heading: 'Capture',
-        hint: 'Streaming controls',
-        shortcuts: [
-            { label: 'Start / stop capture', combo: ['Ctrl', 'Shift', '/'] },
-            { label: 'Toggle mic', combo: ['Ctrl', 'Shift', 'M'] }
-        ]
-    },
-    {
-        heading: 'Assistant',
-        hint: 'Interact and respond',
-        shortcuts: [
-            { label: 'Capture to ask', combo: ['Ctrl', 'Shift', 'H'] },
-            { label: 'Send request', combo: ['Ctrl', 'Enter'] }
-        ]
-    },
-    {
-        heading: 'Window',
-        hint: 'Navigate quickly',
-        shortcuts: [
-            { label: 'Move control window', combo: ['Ctrl', '↑↓'] },
-            { label: 'Scroll transcript', combo: ['Ctrl', 'Shift', '↑↓←→'] },
-            { label: 'Open Settings', combo: ['Ctrl', ','] }
-        ]
-    }
-];
 
 export default function TranscriptWindow({ session }) {
     const {
@@ -45,6 +18,37 @@ export default function TranscriptWindow({ session }) {
     } = session;
     const { transcriptRef, scrollBy, resetScroll } = useTranscriptScroll({ messages });
     const [isGuideVisible, setGuideVisible] = useState(false);
+    const primaryModifierKey = getPrimaryModifierKey();
+    const altModifierKey = getAltModifierKey();
+    const quitShortcut = `${(altModifierKey || 'Alt').toLowerCase()}+shift+q`;
+
+    const shortcutSections = useMemo(() => ([
+        {
+            heading: 'Capture',
+            hint: 'Streaming controls',
+            shortcuts: [
+                { label: 'Start / stop capture', combo: [primaryModifierKey, 'Shift', '/'] },
+                { label: 'Toggle mic', combo: [primaryModifierKey, 'Shift', 'M'] }
+            ]
+        },
+        {
+            heading: 'Assistant',
+            hint: 'Interact and respond',
+            shortcuts: [
+                { label: 'Capture to ask', combo: [primaryModifierKey, 'Shift', 'H'] },
+                { label: 'Send request', combo: [primaryModifierKey, 'Enter'] }
+            ]
+        },
+        {
+            heading: 'Window',
+            hint: 'Navigate quickly',
+            shortcuts: [
+                { label: 'Move control window', combo: [primaryModifierKey, '↑↓'] },
+                { label: 'Scroll transcript', combo: [primaryModifierKey, 'Shift', '↑↓←→'] },
+                { label: 'Open Settings', combo: [primaryModifierKey, ','] }
+            ]
+        }
+    ]), [primaryModifierKey]);
 
     const handleClear = useCallback(() => {
         clearTranscript();
@@ -63,7 +67,7 @@ export default function TranscriptWindow({ session }) {
     useEffect(() => {
         const api = electronAPI?.controlWindow;
         if (!api) {
-            return () => {};
+            return () => { };
         }
 
         const unsubscribes = [];
@@ -136,6 +140,10 @@ export default function TranscriptWindow({ session }) {
                 <header className="transcript-heading">
                     <span className={`state-dot ${isStreaming ? 'state-dot-live' : ''}`} aria-hidden="true" />
                     <span className="heading-chip">{isStreaming ? 'Streaming' : 'Idle'}</span>
+                    <span className="heading-shortcut-hint guide-shortcut-keys">
+                        <kbd>{quitShortcut}</kbd>
+                        to quit
+                    </span>
                 </header>
                 <div className="transcript-body" ref={transcriptRef}>
                     <div className="chat-container">
@@ -150,6 +158,7 @@ export default function TranscriptWindow({ session }) {
                                     isFinal={msg.isFinal}
                                     sourceType={msg.sourceType}
                                     attachments={msg.attachments}
+                                    sent={msg.sent}
                                 />
                             ))
                         )}
@@ -164,7 +173,7 @@ export default function TranscriptWindow({ session }) {
                                 </div>
                             </div>
                             <div className="guide-grid">
-                                {SHORTCUT_SECTIONS.map((section) => (
+                                {shortcutSections.map((section) => (
                                     <section key={section.heading} className="guide-card">
                                         <header className="guide-card-head">
                                             <p className="guide-card-title">{section.heading}</p>
@@ -190,7 +199,7 @@ export default function TranscriptWindow({ session }) {
                         <div className="guide-hint" role="status" aria-live="polite">
                             <span className="guide-hint-label">Press</span>
                             <span className="guide-shortcut-keys guide-hint-keys">
-                                <kbd>Ctrl</kbd>
+                                <kbd>{primaryModifierKey}</kbd>
                                 <kbd>H</kbd>
                             </span>
                             <span className="guide-hint-label">to show shortcuts</span>

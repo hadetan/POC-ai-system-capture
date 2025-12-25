@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import CodeSnippet from './CodeSnippet';
 import { parseFencedCode } from '../utils/parseFencedCode';
+import { getAskAIPromptText } from '../utils/osDetection';
 
-function ChatBubble({ text, side = 'left', isFinal = true, attachments = [], sourceType }) {
+function ChatBubble({ text, side = 'left', isFinal = true, attachments = [], sourceType, sent = false }) {
     const bubbleSide = side === 'right' ? 'right' : 'left';
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     const segments = useMemo(() => parseFencedCode(text || ''), [text]);
@@ -11,6 +12,7 @@ function ChatBubble({ text, side = 'left', isFinal = true, attachments = [], sou
     if (isMicSource) {
         bubbleClasses.push('chat-bubble-mic');
     }
+    const shouldShowAttachmentHint = hasAttachments && bubbleSide === 'right' && sent !== true;
 
     const renderSegment = (segment, index) => {
         if (segment.type === 'code') {
@@ -39,15 +41,22 @@ function ChatBubble({ text, side = 'left', isFinal = true, attachments = [], sou
     return (
         <div className={bubbleClasses.join(' ')} data-final={isFinal ? 'true' : 'false'}>
             {hasAttachments && (
-                <div className="chat-bubble-attachments">
-                    {attachments.map((att) => (
-                        <img
-                            key={att.id || att.name}
-                            className="chat-bubble-attachment"
-                            src={att.dataUrl || att.data}
-                            alt={att.name || 'attachment'}
-                        />
-                    ))}
+                <div className="chat-bubble-attachments-container">
+                    <div className="chat-bubble-attachments">
+                        {attachments.map((att) => (
+                            <img
+                                key={att.id || att.name}
+                                className="chat-bubble-attachment"
+                                src={att.dataUrl || att.data}
+                                alt={att.name || 'attachment'}
+                            />
+                        ))}
+                    </div>
+                    {shouldShowAttachmentHint && (
+                        <div className="chat-bubble-attachment-hint">
+                            {getAskAIPromptText()}
+                        </div>
+                    )}
                 </div>
             )}
             <div className="chat-bubble-content">
