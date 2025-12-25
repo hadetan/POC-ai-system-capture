@@ -153,6 +153,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
             return () => ipcRenderer.removeListener('assistant:stream', listener);
         }
     },
+    settings: {
+        get: () => ipcRenderer.invoke('settings:get'),
+        set: (payload) => ipcRenderer.invoke('settings:set', payload),
+        testConnection: (payload) => ipcRenderer.invoke('settings:test-connection', payload),
+        listModels: (payload) => ipcRenderer.invoke('settings:list-models', payload)
+    },
     overlay: {
         moveDirection: (direction) => {
             const safeDirection = sanitizeDirection(direction);
