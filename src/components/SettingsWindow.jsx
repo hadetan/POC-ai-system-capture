@@ -220,7 +220,7 @@ function SettingsWindow() {
             if (!result?.ok) {
                 throw new Error(result?.error || 'Connection failed.');
             }
-            setStatus({ type: 'success', message: 'Connection verified. Select a model and save to finish.' });
+            setStatus({ type: 'success', message: 'Connection verified. You may save and continue' });
             setConnectionVerified(true);
             await loadModels(provider, {
                 apiKeyOverride: trimmedKey,
@@ -279,8 +279,9 @@ function SettingsWindow() {
                     ) : (
                         <>
                             <h1>Onboarding</h1>
-                            <h3>Please configure and pick your preferred AI provider</h3>
+                            <p>Please configure and pick your preferred AI provider</p>
                             <p>This will be used to answer the asked questions by interviewer and/or solve code problems</p>
+                            <small>No credentials are saved in server or database and only stays local and secured, accessible only to you.</small>
                         </>
                     )
                 ) : null}

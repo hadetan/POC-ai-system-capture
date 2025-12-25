@@ -47,7 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     controlWindow: {
         onToggleCapture: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = () => callback();
             ipcRenderer.on('control-window:toggle-capture', listener);
@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onToggleMic: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = () => callback();
             ipcRenderer.on('control-window:toggle-mic', listener);
@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onToggleGuide: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = () => callback();
             ipcRenderer.on('control-window:toggle-guide', listener);
@@ -71,7 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onScrollUp: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = () => callback();
             ipcRenderer.on('control-window:scroll-up', listener);
@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onScrollDown: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = () => callback();
             ipcRenderer.on('control-window:scroll-down', listener);
@@ -87,7 +87,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onClearTranscripts: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = () => callback();
             ipcRenderer.on('control-window:clear-transcript', listener);
@@ -95,7 +95,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onAssistantSend: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = () => callback();
             ipcRenderer.on('control-window:assistant-send', listener);
@@ -103,7 +103,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onAssistantAttach: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = (_event, payload) => callback(payload);
             ipcRenderer.on('control-window:assistant-attach', listener);
@@ -125,7 +125,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onEvent: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = (_event, payload) => callback(payload);
             ipcRenderer.on('transcription:stream', listener);
@@ -146,7 +146,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
         onEvent: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {};
+                return () => { };
             }
             const listener = (_event, payload) => callback(payload);
             ipcRenderer.on('assistant:stream', listener);
@@ -169,20 +169,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.send('overlay:move-direction', { direction: safeDirection });
         },
         movementHandledGlobally: true
-    }
-        permissions: {
-            check: () => ipcRenderer.invoke('permissions:check'),
-            requestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
-            openSystemSettings: (target) => ipcRenderer.invoke('permissions:open-settings', target),
-            storeSystemAudio: (payload) => ipcRenderer.invoke('permissions:store-system-audio', payload),
-            acknowledge: () => ipcRenderer.invoke('permissions:acknowledge'),
-            onUpdate: (callback) => {
-                if (typeof callback !== 'function') {
-                    return () => {};
-                }
-                const listener = (_event, state) => callback(state);
-                ipcRenderer.on('permissions:update', listener);
-                return () => ipcRenderer.removeListener('permissions:update', listener);
+    },
+    permissions: {
+        check: () => ipcRenderer.invoke('permissions:check'),
+        requestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
+        openSystemSettings: (target) => ipcRenderer.invoke('permissions:open-settings', target),
+        storeSystemAudio: (payload) => ipcRenderer.invoke('permissions:store-system-audio', payload),
+        acknowledge: () => ipcRenderer.invoke('permissions:acknowledge'),
+        onUpdate: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => { };
             }
+            const listener = (_event, state) => callback(state);
+            ipcRenderer.on('permissions:update', listener);
+            return () => ipcRenderer.removeListener('permissions:update', listener);
         }
+    }
 });
