@@ -72,21 +72,6 @@ function PermissionWindow() {
         }
     }, [reloadPermissionState]);
 
-    const openScreenSettings = useCallback(async () => {
-        if (!electronAPI?.permissions?.openSystemSettings) {
-            return;
-        }
-        setErrorMessage('');
-        try {
-            const result = await electronAPI.permissions.openSystemSettings('screen-recording');
-            if (!result?.ok && result?.error) {
-                setErrorMessage(result.error);
-            }
-        } catch (error) {
-            setErrorMessage(error?.message || 'Unable to open System Settings.');
-        }
-    }, []);
-
     const stopTracks = (stream) => {
         if (!stream) {
             return;
@@ -119,12 +104,7 @@ function PermissionWindow() {
             }
             const sourceId = sources[0].id;
             stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    mandatory: {
-                        chromeMediaSource: 'desktop',
-                        chromeMediaSourceId: sourceId
-                    }
-                },
+                audio: false,
                 video: {
                     mandatory: {
                         chromeMediaSource: 'desktop',
@@ -132,20 +112,64 @@ function PermissionWindow() {
                     }
                 }
             });
+        } catch (error) {
+            const message = error?.message || 'Screen capture failed.';
+            setErrorMessage(message);
+        } finally {
+            stopTracks(stream);
+            setIsBusy(false);
+            await reloadPermissionState();
+        }
+    }, [reloadPermissionState]);
+
+    const requestSystemAudio = useCallback(async () => {
+        if (!electronAPI?.getDesktopSources) {
+            return;
+        }
+        setIsBusy(true);
+        setErrorMessage('');
+        setInfoMessage('');
+
+        let stream;
+        try {
+            const sources = await electronAPI.getDesktopSources({
+                types: ['screen'],
+                thumbnailSize: { width: 1280, height: 720 }
+            });
+            if (!Array.isArray(sources) || sources.length === 0 || !sources[0]?.id) {
+                throw new Error('No system audio source available.');
+            }
+            const sourceId = sources[0].id;
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: sourceId
+                    }
+                },
+                video: false
+            });
             const audioTracks = stream.getAudioTracks();
             const hasAudio = audioTracks.some((track) => track.readyState === 'live');
             if (electronAPI?.permissions?.storeSystemAudio) {
                 await electronAPI.permissions.storeSystemAudio({
                     granted: hasAudio,
-                    status: hasAudio ? 'ready' : 'missing-audio-track'
+                    status: hasAudio ? 'granted' : 'missing-system-audio'
                 });
             }
-            if (!hasAudio) {
-                setInfoMessage('System audio track was not detected. Please ensure a loopback driver such as BlackHole is installed.');
+            if (hasAudio) {
+                setInfoMessage('System audio permission granted. No further action needed.');
+            } else {
+                setInfoMessage('System audio track not detected. Try again after selecting the correct source.');
             }
         } catch (error) {
-            const message = error?.message || 'Screen capture failed.';
-            setErrorMessage(message);
+            setErrorMessage(error?.message || 'Unable to capture system audio.');
+            if (electronAPI?.permissions?.storeSystemAudio) {
+                await electronAPI.permissions.storeSystemAudio({
+                    granted: false,
+                    status: 'error'
+                });
+            }
         } finally {
             stopTracks(stream);
             setIsBusy(false);
@@ -207,9 +231,13 @@ function PermissionWindow() {
                     </span>
                 </div>
                 <p>We only use the microphone during recordings you initiate. This enables voice capture for transcripts and assistant replies.</p>
-                <button type="button" disabled={isBusy} onClick={requestMicrophone}>
-                    Request Microphone Access
-                </button>
+                {!microphoneStatus.granted ? (
+                    <button type="button" disabled={isBusy} onClick={requestMicrophone}>
+                        Request Microphone Access
+                    </button>
+                ) : (
+                    <p className="permission-step__granted">Microphone permission granted. You're all set.</p>
+                )}
             </section>
 
             <section className="permission-step">
@@ -220,14 +248,15 @@ function PermissionWindow() {
                     </span>
                 </div>
                 <p>macOS asks for permission the first time screen capture runs. Click below to trigger the prompt and allow access.</p>
-                <div className="permission-step__actions">
-                    <button type="button" disabled={isBusy} onClick={attemptScreenCapture}>
-                        Try Screen Capture (Triggers Prompt)
-                    </button>
-                    <button type="button" disabled={isBusy} onClick={openScreenSettings}>
-                        Open System Settings (Screen Recording)
-                    </button>
-                </div>
+                {!screenStatus.granted ? (
+                    <div className="permission-step__actions">
+                        <button type="button" disabled={isBusy} onClick={attemptScreenCapture}>
+                            Request Screen Recording Access
+                        </button>
+                    </div>
+                ) : (
+                    <p className="permission-step__granted">Screen recording permission granted. You're good to go.</p>
+                )}
             </section>
 
             <section className="permission-step">
@@ -237,17 +266,14 @@ function PermissionWindow() {
                         {systemAudioStatus.label}
                     </span>
                 </div>
-                <p>
-                    System audio requires an audio loopback driver such as BlackHole. After installing, run the screen capture check to verify an audio track is present.
-                </p>
-                <a
-                    href="https://existential.audio/blackhole/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="permission-link"
-                >
-                    Install BlackHole (free)
-                </a>
+                <p>Grant access so the app can record system playback alongside your microphone while capturing sessions.</p>
+                {!systemAudioStatus.granted ? (
+                    <button type="button" disabled={isBusy} onClick={requestSystemAudio}>
+                        Request System Audio Access
+                    </button>
+                ) : (
+                    <p className="permission-step__granted">System audio permission granted. Nothing else to do here.</p>
+                )}
             </section>
 
             {errorMessage && (
@@ -268,7 +294,12 @@ function PermissionWindow() {
                 </button>
                 <button
                     type="button"
-                    disabled={isBusy || !currentState.microphone.granted || !currentState.screenCapture.granted}
+                    disabled={
+                        isBusy
+                        || !currentState.microphone.granted
+                        || !currentState.screenCapture.granted
+                        || !currentState.systemAudio.granted
+                    }
                     onClick={acknowledgePermissions}
                 >
                     Continue

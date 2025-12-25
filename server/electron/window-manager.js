@@ -667,7 +667,7 @@ const createWindowManager = ({
 
         permissionCheckWindow = new BrowserWindow({
             width: CONTROL_WINDOW_WIDTH,
-            height: 160,
+            height: 300,
             transparent: true,
             frame: false,
             icon: blankNativeImage,

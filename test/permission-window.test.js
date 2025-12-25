@@ -59,12 +59,12 @@ const listeners = new Set();
 let checkCalls = 0;
 let microphoneRequested = 0;
 let acknowledgeCalls = 0;
-let lastConstraints = null;
+const constraintsHistory = [];
 
 const createTrack = (kind) => ({ kind, readyState: 'live', stop: () => {} });
 
 navigator.mediaDevices.getUserMedia = async (constraints) => {
-    lastConstraints = constraints;
+    constraintsHistory.push(constraints);
     return new FakeMediaStream([createTrack('audio'), createTrack('video')]);
 };
 
@@ -82,8 +82,8 @@ global.electronAPI = {
             storedState.microphone = { granted: true, status: 'granted' };
             return { ok: true, granted: true };
         },
-        storeSystemAudio: async ({ granted }) => {
-            storedState.systemAudio = { granted, status: granted ? 'ready' : 'missing-audio-track' };
+        storeSystemAudio: async ({ granted, status }) => {
+            storedState.systemAudio = { granted, status: status || (granted ? 'granted' : 'error') };
             return { ok: true, state: storedState.systemAudio };
         },
         acknowledge: async () => {
@@ -113,11 +113,14 @@ test('PermissionWindow renders status and triggers permission actions', async ()
 
     assert.ok(checkCalls > 0, 'initial permission check triggered');
 
-    const requestButton = container.querySelector('button');
-    assert.ok(requestButton, 'request microphone button found');
+    const steps = Array.from(container.querySelectorAll('.permission-step'));
+    assert.equal(steps.length, 3, 'renders three permission steps');
+
+    const microphoneButton = steps[0].querySelector('button');
+    assert.ok(microphoneButton, 'request microphone button found');
 
     await act(async () => {
-        requestButton.click();
+        microphoneButton.click();
     });
 
     assert.equal(microphoneRequested, 1, 'microphone request issued');
@@ -130,15 +133,38 @@ test('PermissionWindow renders status and triggers permission actions', async ()
         }));
     });
 
-    const screenButton = container.querySelector('.permission-step__actions button');
+    assert.equal(steps[0].querySelector('button'), null, 'microphone button hidden after grant');
+
+    const screenButton = steps[1].querySelector('button');
     await act(async () => {
         screenButton.click();
     });
 
-    assert.ok(lastConstraints);
-    assert.equal(lastConstraints.audio.mandatory.chromeMediaSource, 'desktop');
+    const latestScreenConstraints = constraintsHistory.at(-1);
+    assert.ok(latestScreenConstraints, 'screen capture constraints recorded');
+    assert.equal(latestScreenConstraints.audio, false, 'screen capture skips audio request');
+    assert.equal(latestScreenConstraints.video.mandatory.chromeMediaSource, 'desktop');
+
+    const systemAudioButton = steps[2].querySelector('button');
+    await act(async () => {
+        systemAudioButton.click();
+    });
+
+    const latestAudioConstraints = constraintsHistory.at(-1);
+    assert.ok(latestAudioConstraints, 'system audio constraints recorded');
+    assert.equal(latestAudioConstraints.video, false, 'system audio capture skips video');
+    assert.equal(latestAudioConstraints.audio.mandatory.chromeMediaSource, 'desktop');
+
+    await act(async () => {
+        listeners.forEach((listener) => listener({
+            microphone: { granted: true, status: 'granted' },
+            screenCapture: { granted: true, status: 'granted' },
+            systemAudio: { granted: true, status: 'granted' }
+        }));
+    });
 
     const continueButtons = Array.from(container.querySelectorAll('.permission-window__footer button'));
+    assert.equal(continueButtons[1].disabled, false, 'continue enabled when all permissions granted');
     await act(async () => {
         continueButtons[1].click();
     });
