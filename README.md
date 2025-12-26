@@ -4,7 +4,7 @@ No description yet;
 
 ### Status
 
-_Currently this is fully supported on windows OS only_
+__The app is now fully supported with Windows and macOS__
 
 ## Prerequisites
 
