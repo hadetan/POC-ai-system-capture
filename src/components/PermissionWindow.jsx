@@ -5,10 +5,11 @@ const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const defaultStatus = {
     platform: 'unknown',
     allGranted: false,
-    missing: ['microphone', 'screen'],
+    missing: ['microphone', 'screen', 'systemAudio'],
     checks: {
         microphone: { status: 'unknown', granted: false },
-        screen: { status: 'unknown', granted: false }
+        screen: { status: 'unknown', granted: false },
+        systemAudio: { status: 'unknown', granted: false }
     }
 };
 
@@ -29,6 +30,52 @@ const formatStatusLabel = (entry) => {
 const shouldRequestPermission = (status, key) => {
     const entry = status?.checks?.[key];
     return !entry?.granted;
+};
+
+const normalizeStatusShape = (rawStatus) => {
+    const base = rawStatus && typeof rawStatus === 'object' ? rawStatus : defaultStatus;
+    const mergedChecks = {
+        ...defaultStatus.checks,
+        ...(base.checks || {})
+    };
+    const screenEntry = mergedChecks.screen || defaultStatus.checks.screen;
+    const microphoneEntry = mergedChecks.microphone || defaultStatus.checks.microphone;
+    const systemAudioEntry = mergedChecks.systemAudio || screenEntry;
+
+    const missingSource = Array.isArray(base.missing) ? base.missing : defaultStatus.missing;
+    const missingSet = new Set(missingSource);
+
+    if (!microphoneEntry?.granted) {
+        missingSet.add('microphone');
+    } else {
+        missingSet.delete('microphone');
+    }
+
+    if (!screenEntry?.granted) {
+        missingSet.add('screen');
+        missingSet.add('systemAudio');
+    } else {
+        missingSet.delete('screen');
+        if (!systemAudioEntry?.granted) {
+            missingSet.add('systemAudio');
+        } else {
+            missingSet.delete('systemAudio');
+        }
+    }
+
+    const normalized = {
+        ...base,
+        checks: {
+            ...mergedChecks,
+            microphone: microphoneEntry,
+            screen: screenEntry,
+            systemAudio: systemAudioEntry
+        },
+        missing: Array.from(missingSet)
+    };
+
+    normalized.allGranted = normalized.missing.length === 0;
+    return normalized;
 };
 
 const stopTracks = (stream) => {
@@ -81,6 +128,32 @@ const requestScreenCaptureAccess = async () => {
     stopTracks(stream);
 };
 
+const requestSystemAudioAccess = async () => {
+    if (!electronAPI?.getDesktopSources) {
+        throw new Error('Screen capture helpers are unavailable.');
+    }
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        throw new Error('System audio APIs are unavailable in this environment.');
+    }
+    const sources = await electronAPI.getDesktopSources({
+        types: ['screen', 'window'],
+        fetchWindowIcons: false,
+        thumbnailSize: { width: 16, height: 16 }
+    });
+    const source = Array.isArray(sources) && sources.length ? sources[0] : null;
+    if (!source?.id) {
+        throw new Error('No desktop source available to request system audio permission.');
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: source.id
+        },
+        video: false
+    });
+    stopTracks(stream);
+};
+
 export default function PermissionWindow() {
     const [status, setStatus] = useState(defaultStatus);
     const [isLoading, setIsLoading] = useState(true);
@@ -92,8 +165,9 @@ export default function PermissionWindow() {
         if (!nextStatus) {
             return;
         }
-        setStatus(nextStatus);
-        if (nextStatus.allGranted) {
+        const normalized = normalizeStatusShape(nextStatus);
+        setStatus(normalized);
+        if (normalized.allGranted) {
             if (!acknowledgeLockRef.current) {
                 acknowledgeLockRef.current = true;
                 electronAPI?.permissions?.acknowledge?.().catch(() => {
@@ -140,6 +214,7 @@ export default function PermissionWindow() {
     const hasMissing = missingPermissions.length > 0;
     const shouldRequestMic = shouldRequestPermission(status, 'microphone');
     const shouldRequestScreen = shouldRequestPermission(status, 'screen');
+    const shouldRequestSystemAudio = shouldRequestPermission(status, 'systemAudio');
 
     const refreshStatus = useCallback(async () => {
         const nextStatus = await electronAPI?.permissions?.refreshStatus?.();
@@ -168,6 +243,13 @@ export default function PermissionWindow() {
                     errors.push(error?.message || 'Screen capture permission request failed.');
                 }
             }
+            if (shouldRequestSystemAudio) {
+                try {
+                    await requestSystemAudioAccess();
+                } catch (error) {
+                    errors.push(error?.message || 'System audio permission request failed.');
+                }
+            }
             if (errors.length) {
                 setLastError(errors.join(' '));
             }
@@ -175,27 +257,27 @@ export default function PermissionWindow() {
             await refreshStatus();
             setIsRequesting(false);
         }
-    }, [refreshStatus, shouldRequestMic, shouldRequestScreen]);
+    }, [refreshStatus, shouldRequestMic, shouldRequestScreen, shouldRequestSystemAudio]);
 
     const statusList = useMemo(() => ([
         {
             key: 'microphone',
             title: 'Microphone Access',
-            rationale: 'Microphone will be used only when you toggle it, so it will not listen to you on session starts. This will be used to write your conversation with interviewer and when sent to assistant, AI will have a better context to answer questions.',
+            rationale: 'The microphone stays muted until you toggle it on. When active, app only captures your voice to transcribe the conversation and give the assistant better context for replies.',
             entry: status?.checks?.microphone
         },
         {
             key: 'screen',
-            title: 'Screen Recording + System Audio',
-            rationale: 'Screen will be captured so you can capture a silent screenshot(s) of coding problem and send to AI to return the solved answer.',
+            title: 'Screen Recording',
+            rationale: 'Screen permission will allow the app to capture silent screenshot(s) of coding problem using an action and send to AI to return the solved answer.',
             entry: status?.checks?.screen
         },
-        // {
-        //     key: 'audio',
-        //     title: 'System Audio',
-        //     rationale: 'System audio will be captured so it can transcribe the interview asked questions and can be sent to AI for answers.',
-        //     entry: status?.checks?.screen
-        // }
+        {
+            key: 'systemAudio',
+            title: 'System Audio',
+            rationale: 'System audio will be captured so it can transcribe the interviewer questions and let the assistant respond with context-appropriate answers.',
+            entry: status?.checks?.systemAudio
+        }
     ]), [status]);
 
     return (
@@ -259,10 +341,6 @@ export default function PermissionWindow() {
                     Refresh Status
                 </button> */}
             </footer>
-
-            <p className="permissions-footnote">
-                If you granted access in macOS System Settings, click "Refresh Status" to update the permissions shown here.
-            </p>
         </div>
     );
 }
