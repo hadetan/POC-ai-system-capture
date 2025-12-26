@@ -312,7 +312,8 @@ const initializeApp = async () => {
         }
 
         closePermissionWindow();
-        return ensureOverlayWindowsVisible();
+        ensureOverlayWindowsVisible();
+        return true;
     };
 
     const permissionIpcRegistration = registerPermissionHandlers({

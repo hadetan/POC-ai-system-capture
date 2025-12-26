@@ -624,7 +624,7 @@ const createWindowManager = ({
             show: false,
             backgroundColor: '#0f172a',
             title: 'Permissions Required',
-            closable: false,
+            closable: true,
             webPreferences: {
                 preload: pathModule.join(__dirname, 'preload.js'),
                 contextIsolation: true,

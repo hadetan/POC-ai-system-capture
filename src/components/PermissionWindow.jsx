@@ -67,10 +67,8 @@ const requestScreenCaptureAccess = async () => {
     }
     const constraints = {
         audio: {
-            mandatory: {
-                chromeMediaSource: 'desktop',
-                chromeMediaSourceId: source.id
-            }
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: source.id
         },
         video: {
             mandatory: {
@@ -230,7 +228,7 @@ export default function PermissionWindow() {
             ) : null}
 
             {!hasMissing && !isLoading ? (
-                <div className="permissions-alert success">All required permissions are granted. We will open the overlays in a moment.</div>
+                <div className="permissions-alert success">All required permissions are granted. The overlays will open momentarily.</div>
             ) : null}
 
             <footer className="permissions-actions">
@@ -239,6 +237,11 @@ export default function PermissionWindow() {
                     className="primary"
                     onClick={handleRequest}
                     disabled={isRequesting || !hasMissing}
+                    aria-label={
+                        isRequesting
+                            ? 'Requesting microphone and screen recording permissions'
+                            : 'Request microphone and screen recording permissions'
+                    }
                 >
                     {isRequesting ? 'Requesting…' : 'Request Permissions'}
                 </button>
@@ -253,7 +256,7 @@ export default function PermissionWindow() {
             </footer>
 
             <p className="permissions-footnote">
-                If you just granted access in macOS settings, restart or return here after hitting Refresh so we can pick up the change.
+                If you granted access in macOS System Settings, click "Refresh Status" to update the permissions shown here.
             </p>
         </div>
     );
