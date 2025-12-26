@@ -141,13 +141,13 @@ export default function PermissionWindow() {
     const shouldRequestMic = shouldRequestPermission(status, 'microphone');
     const shouldRequestScreen = shouldRequestPermission(status, 'screen');
 
-    const refreshStatus = useCallback(async () => {
-        const nextStatus = await electronAPI?.permissions?.refreshStatus?.();
-        if (nextStatus) {
-            updateStatus(nextStatus);
-        }
-        return nextStatus;
-    }, [updateStatus]);
+    // const refreshStatus = useCallback(async () => {
+    //     const nextStatus = await electronAPI?.permissions?.refreshStatus?.();
+    //     if (nextStatus) {
+    //         updateStatus(nextStatus);
+    //     }
+    //     return nextStatus;
+    // }, [updateStatus]);
 
     const handleRequest = useCallback(async () => {
         setIsRequesting(true);
@@ -181,15 +181,21 @@ export default function PermissionWindow() {
         {
             key: 'microphone',
             title: 'Microphone Access',
-            rationale: 'Required so we can capture your voice input alongside the session audio.',
+            rationale: 'Microphone will be used only when you toggle it, so it will not listen to you on session starts. This will be used to write your conversation with interviewer and when sent to assistant, AI will have a better context to answer questions.',
             entry: status?.checks?.microphone
         },
         {
             key: 'screen',
             title: 'Screen Recording + System Audio',
-            rationale: 'Needed to record your screen and capture system audio when a session starts.',
+            rationale: 'Screen will be captured so you can capture a silent screenshot(s) of coding problem and send to AI to return the solved answer.',
             entry: status?.checks?.screen
-        }
+        },
+        // {
+        //     key: 'audio',
+        //     title: 'System Audio',
+        //     rationale: 'System audio will be captured so it can transcribe the interview asked questions and can be sent to AI for answers.',
+        //     entry: status?.checks?.screen
+        // }
     ]), [status]);
 
     return (
@@ -198,8 +204,7 @@ export default function PermissionWindow() {
                 <p className="permissions-kicker">macOS Permissions Required</p>
                 <h1>Let&apos;s finish setting things up</h1>
                 <p className="permissions-intro">
-                    We rely on the same capture flow as the controller window. Grant microphone and screen recording access,
-                    then you can jump straight into the main app.
+                    We require these permissions in order to capture your system screen, system audio and mic and send to the assistant A.I. for interview answer.
                 </p>
             </header>
 
@@ -245,14 +250,14 @@ export default function PermissionWindow() {
                 >
                     {isRequesting ? 'Requesting…' : 'Request Permissions'}
                 </button>
-                <button
+                {/* <button
                     type="button"
                     className="secondary"
                     onClick={refreshStatus}
                     disabled={isRequesting}
                 >
                     Refresh Status
-                </button>
+                </button> */}
             </footer>
 
             <p className="permissions-footnote">
