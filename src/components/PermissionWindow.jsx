@@ -149,8 +149,14 @@ const requestSystemAudioAccess = async () => {
             chromeMediaSource: 'desktop',
             chromeMediaSourceId: source.id
         },
-        video: false
+        // Will be discarded, this is just to satisfy the chromium/electron
+        video: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: source.id
+        },
     });
+    const audioTracks = stream.getAudioTracks();
+    new MediaStream([audioTracks[0]]);
     stopTracks(stream);
 };
 
