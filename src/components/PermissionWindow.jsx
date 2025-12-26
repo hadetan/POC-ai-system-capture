@@ -141,13 +141,13 @@ export default function PermissionWindow() {
     const shouldRequestMic = shouldRequestPermission(status, 'microphone');
     const shouldRequestScreen = shouldRequestPermission(status, 'screen');
 
-    // const refreshStatus = useCallback(async () => {
-    //     const nextStatus = await electronAPI?.permissions?.refreshStatus?.();
-    //     if (nextStatus) {
-    //         updateStatus(nextStatus);
-    //     }
-    //     return nextStatus;
-    // }, [updateStatus]);
+    const refreshStatus = useCallback(async () => {
+        const nextStatus = await electronAPI?.permissions?.refreshStatus?.();
+        if (nextStatus) {
+            updateStatus(nextStatus);
+        }
+        return nextStatus;
+    }, [updateStatus]);
 
     const handleRequest = useCallback(async () => {
         setIsRequesting(true);
