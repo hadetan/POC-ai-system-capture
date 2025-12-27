@@ -742,6 +742,7 @@ export function useTranscriptionSession() {
                     updated = true;
                     return { ...msg, text: finalText, isFinal: true };
                 }
+                return msg;
             });
             if (!updated) {
                 next.push({

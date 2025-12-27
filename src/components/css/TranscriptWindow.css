@@ -117,53 +117,6 @@
     transform: translateY(-1px);
 }
 
-.control-start {
-    background: linear-gradient(135deg, rgba(34, 211, 238, 0.95), rgba(14, 165, 233, 0.92));
-    color: #041627;
-}
-
-.control-stop {
-    background: rgba(15, 23, 42, 0.65);
-    color: #fecdd3;
-    border: 1px solid rgba(248, 113, 113, 0.45);
-}
-
-.control-mic {
-    background: rgba(21, 128, 61, 0.35);
-    color: #bbf7d0;
-    border: 1px solid rgba(74, 222, 128, 0.45);
-}
-
-.control-mic-active {
-    background: linear-gradient(135deg, rgba(134, 239, 172, 0.35), rgba(74, 222, 128, 0.4));
-    color: #ecfdf5;
-    border-color: rgba(74, 222, 128, 0.65);
-}
-
-.transcript-status-bar {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-    font-size: 0.78rem;
-    color: rgba(226, 232, 240, 0.85);
-}
-
-.transcript-status-entry {
-    padding: 0.25rem 0.7rem;
-    border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
-    background: rgba(15, 23, 42, 0.6);
-    letter-spacing: 0.04em;
-}
-
-.transcript-status-entry-error {
-    color: #fca5a5;
-    border-color: rgba(248, 113, 113, 0.55);
-    background: rgba(127, 29, 29, 0.35);
-}
-
 .heading-status {
     font-size: 0.95rem;
     font-weight: 600;
