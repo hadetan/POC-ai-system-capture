@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { runCaptureProbe } from '../utils/capturePipeline.js';
 import MicIcon from '../assets/icons/mic.svg?react';
 import ScreenIcon from '../assets/icons/screen.svg?react';
+import './css/PermissionWindow.css';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 

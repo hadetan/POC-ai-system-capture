@@ -1,5 +1,6 @@
-import { cloneElement, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRecorder } from '../hooks/useRecorder';
+import './css/ControlWindow.css';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 

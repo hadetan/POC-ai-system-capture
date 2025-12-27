@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import './css/SettingsWindow.css';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 

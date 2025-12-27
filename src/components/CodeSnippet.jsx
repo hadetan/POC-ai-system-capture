@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { highlightCode } from '../utils/highlightCode';
+import './css/CodeSnippet.css';
 import 'highlight.js/styles/github-dark.css';
 
 function CodeSnippet({ code = '', language }) {
