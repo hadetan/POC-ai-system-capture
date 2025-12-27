@@ -47,13 +47,14 @@ body[data-window-mode="permissions"] {
     position: relative;
     overflow: hidden;
     display: flex;
-    align-items: stretch;
+    align-items: center;
     gap: 2.4rem;
     padding: 2.6rem 2.8rem;
     border-radius: 28px;
     border: 1px solid rgba(148, 163, 184, 0.28);
     background: linear-gradient(135deg, rgba(14, 165, 233, 0.42), rgba(15, 23, 42, 0.92));
     box-shadow: 0 30px 70px rgba(2, 6, 23, 0.4);
+    height: auto;
 }
 
 .permissions-hero::after {
@@ -94,51 +95,6 @@ body[data-window-mode="permissions"] {
     color: rgba(226, 232, 240, 0.88);
 }
 
-.permissions-progress {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.8rem 1rem;
-    border-radius: 18px;
-    border: 1px solid rgba(148, 163, 184, 0.28);
-    background: rgba(15, 23, 42, 0.78);
-    box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.18);
-    backdrop-filter: blur(12px);
-}
-
-.permissions-progress-bar {
-    flex: 1 1 160px;
-    height: 0.45rem;
-    border-radius: 999px;
-    background: rgba(148, 163, 184, 0.24);
-    overflow: hidden;
-}
-
-.permissions-progress-bar div {
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(135deg, rgba(45, 212, 191, 0.9), rgba(56, 189, 248, 0.95));
-    transition: width 200ms ease;
-}
-
-.permissions-progress-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    min-width: 150px;
-}
-
-.permissions-progress-copy strong {
-    font-size: 0.95rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-}
-
-.permissions-progress-copy span {
-    font-size: 0.88rem;
-    color: rgba(203, 213, 225, 0.82);
-}
-
 .permissions-hero-art {
     position: relative;
     z-index: 1;
@@ -161,6 +117,12 @@ body[data-window-mode="permissions"] {
     border-radius: 50%;
     background: radial-gradient(circle, rgba(56, 189, 248, 0.45) 0%, rgba(14, 165, 233, 0.15) 55%, transparent 70%);
     filter: blur(0.5px);
+    top: 40%;
+    right: 35%;
+    transform: translate(50%, -50%);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 1;
 }
 
 .permissions-hero-orb {
@@ -169,8 +131,26 @@ body[data-window-mode="permissions"] {
     height: 120px;
     border-radius: 50%;
     background: radial-gradient(circle, rgba(45, 212, 191, 0.75), rgba(14, 116, 144, 0.55));
-    transform: translate(60px, -40px);
+    top: 22%;
+    right: 18%;
+    transform: translate(50%, -50%);
     opacity: 0.85;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.permissions-hero-glow {
+    position: absolute;
+    width: 360px;
+    height: 360px;
+    border-radius: 60%;
+    background: radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.4), rgba(14, 165, 233, 0.12) 55%, transparent 80%);
+    bottom: -140px;
+    right: -120px;
+    filter: blur(1px);
+    opacity: 0.68;
+    pointer-events: none;
+    z-index: 0;
 }
 
 .permissions-body {
@@ -180,9 +160,9 @@ body[data-window-mode="permissions"] {
 }
 
 .permissions-status-grid {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 1.5rem;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .permissions-status-card {

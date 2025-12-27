@@ -14,14 +14,14 @@ const TEST_STATES = {
 
 const formatTestLabel = (state) => {
     switch (state) {
-    case TEST_STATES.RUNNING:
-        return 'Testing…';
-    case TEST_STATES.SUCCESS:
-        return 'Working';
-    case TEST_STATES.FAILED:
-        return 'Needs retry';
-    default:
-        return 'Not tested';
+        case TEST_STATES.RUNNING:
+            return 'Testing…';
+        case TEST_STATES.SUCCESS:
+            return 'Working';
+        case TEST_STATES.FAILED:
+            return 'Needs retry';
+        default:
+            return 'Not tested';
     }
 };
 
@@ -56,11 +56,6 @@ export default function PermissionWindow() {
 
     const isTesting = micStatus === TEST_STATES.RUNNING || screenAudioStatus === TEST_STATES.RUNNING;
     const canContinue = micStatus === TEST_STATES.SUCCESS && screenAudioStatus === TEST_STATES.SUCCESS;
-
-    const testsCompleted = useMemo(
-        () => [micStatus, screenAudioStatus].filter((status) => status === TEST_STATES.SUCCESS).length,
-        [micStatus, screenAudioStatus]
-    );
 
     const handleMicTest = useCallback(async () => {
         setMicStatus(TEST_STATES.RUNNING);
@@ -133,9 +128,6 @@ export default function PermissionWindow() {
         }
     ]), [handleMicTest, handleScreenAudioTest, micStatus, screenAudioStatus]);
 
-    const totalTests = testCards.length;
-    const completionPercent = totalTests > 0 ? Math.round((testsCompleted / totalTests) * 100) : 0;
-
     return (
         <div className="permissions-window" role="presentation">
             <div className="permissions-layout">
@@ -144,27 +136,15 @@ export default function PermissionWindow() {
                         <p className="permissions-kicker">macOS capture check</p>
                         <h1 id="permissions-title">Test your setup before you go live</h1>
                         <p className="permissions-intro">
-                            Authorize capture once and stay in the flow. We run quick checks so macOS grants access and we confirm your mic and system audio are ready for the assistant.
+                            Authorize capture once and stay in the flow. We run
+                            quick checks so macOS grants access and we confirm
+                            your mic and system audio are ready for the
+                            assistant.
                         </p>
-                        <div
-                            className="permissions-progress"
-                            role="status"
-                            aria-live="polite"
-                            aria-label={`Progress ${testsCompleted} of ${totalTests} tests ready`}
-                        >
-                            <div className="permissions-progress-bar" aria-hidden="true">
-                                <div style={{ width: `${completionPercent}%` }} />
-                            </div>
-                            <div className="permissions-progress-copy">
-                                <strong>{testsCompleted}/{totalTests} ready</strong>
-                                <span>{canContinue ? 'All set—continue below.' : 'Complete the quick checks to continue.'}</span>
-                            </div>
-                        </div>
                     </div>
-                    <div className="permissions-hero-art" aria-hidden="true">
-                        <span className="permissions-hero-ring" />
-                        <span className="permissions-hero-orb" />
-                    </div>
+                    <span className="permissions-hero-ring" aria-hidden="true" />
+                    <span className="permissions-hero-orb" aria-hidden="true" />
+                    <span className="permissions-hero-glow" aria-hidden="true" />
                 </header>
 
                 <div className="permissions-body" aria-describedby="permissions-title">
@@ -205,7 +185,10 @@ export default function PermissionWindow() {
                     <aside className="permissions-guidance" aria-live="polite">
                         <h3>Need to troubleshoot?</h3>
                         <p>
-                            You can revisit permissions in System Settings &gt; Privacy & Security. For screen recording, confirm the app is checked under Screen Recording and Accessibility.
+                            You can revisit permissions in System Settings &gt;
+                            Privacy & Security. For screen recording, confirm
+                            the app is checked under Screen Recording and
+                            Accessibility.
                         </p>
                     </aside>
                 </div>
