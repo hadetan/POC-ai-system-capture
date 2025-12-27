@@ -22,6 +22,7 @@ function SettingsWindow() {
     const [connectionVerified, setConnectionVerified] = useState(false);
     const [initialized, setInitialized] = useState(false);
     const [hasSavedConfig, setHasSavedConfig] = useState(false);
+    const [activeTab, setActiveTab] = useState('assistant');
 
     const modelsRequestIdRef = useRef(0);
     const fetchModelsTimeoutRef = useRef(null);
@@ -68,6 +69,7 @@ function SettingsWindow() {
                 setMissing(result.missing || emptyMissing);
                 const storedConfigured = !(result?.missing?.provider || result?.missing?.model || result?.missing?.apiKey);
                 setHasSavedConfig(storedConfigured);
+                setActiveTab(storedConfigured ? 'general' : 'assistant');
                 if (nextProvider) {
                     await loadModels(nextProvider, {
                         apiKeyOverride: '',
@@ -268,25 +270,19 @@ function SettingsWindow() {
     const showSaveButton = connectionVerified && !missing.model;
     const canCheckConnection = provider && (normalizedApiKey || hasStoredSecret);
     const canSave = showSaveButton && !saving;
+    const isOnboarding = !hasSavedConfig;
 
-    if (!initialized) return <div className="loading">Initializing…</div>;
+    const tabs = useMemo(() => (
+        hasSavedConfig
+            ? [
+                { id: 'general', label: 'General' },
+                { id: 'assistant', label: 'Assistant' }
+            ]
+            : []
+    ), [hasSavedConfig]);
 
-    return (
-        <div className="settings-window">
-            <header>
-                {initialized ? (
-                    hasSavedConfig ? (
-                        <h1>Settings</h1>
-                    ) : (
-                        <>
-                            <h1>Onboarding</h1>
-                            <h3>Please configure and pick your preferred AI provider</h3>
-                            <p>This will be used to answer the asked questions by interviewer and/or solve code problems</p>
-                        </>
-                    )
-                ) : null}
-            </header>
-
+    const renderAssistantPanel = () => (
+        <div className="settings-panel assistant">
             <div className="settings-field">
                 <label htmlFor="assistant-provider">Assistant Provider</label>
                 <select
@@ -365,6 +361,71 @@ function SettingsWindow() {
                     </button>
                 )}
             </div>
+        </div>
+    );
+
+    const renderGeneralPanel = () => {
+        return (
+            <div className="settings-panel general">
+                <div className="settings-card">
+                    <h2>General Preferences</h2>
+                    <p>Configure overarching preferences here. Switch to the Assistant tab to adjust provider credentials and models.</p>
+                </div>
+
+                <div className="settings-actions">
+                    <button
+                        type="button"
+                        className="secondary"
+                        onClick={handleClose}
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    if (!initialized) return <div className="loading">Initializing…</div>;
+
+    return (
+        <div className="settings-window">
+            <header>
+                {initialized ? (
+                    hasSavedConfig ? (
+                        <>
+                            <h1>Settings</h1>
+                            <p>Review general preferences or fine-tune the assistant configuration below.</p>
+                        </>
+                    ) : (
+                        <>
+                            <h1>Onboarding</h1>
+                            <h3>Please configure and pick your preferred AI provider</h3>
+                            <p>This will be used to answer the asked questions by interviewer and/or solve code problems</p>
+                        </>
+                    )
+                ) : null}
+            </header>
+
+            {hasSavedConfig && (
+                <nav className="settings-tabs" role="tablist" aria-label="Settings Tabs">
+                    {tabs.map((tab) => (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            className="settings-tab"
+                            role="tab"
+                            aria-selected={activeTab === tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
+            )}
+
+            {isOnboarding && renderAssistantPanel()}
+            {!isOnboarding && activeTab === 'assistant' && renderAssistantPanel()}
+            {!isOnboarding && activeTab === 'general' && renderGeneralPanel()}
         </div>
     );
 }
