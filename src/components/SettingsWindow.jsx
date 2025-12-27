@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import TranscriptPreview from './TranscriptPreview';
 import { clampOpacity, TRANSCRIPT_OPACITY_OPTIONS } from '../utils/transcriptOpacity';
 import './css/SettingsWindow.css';
+import { DEFAULT_TRANSCRIPT_OPACITY } from '../utils/const';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 
 const emptyMissing = { provider: true, model: true, apiKey: true };
-const DEFAULT_TRANSCRIPT_OPACITY = 0.75;
 
 const toTitleCase = (value) => value.replace(/(^.|-.|_.|\s.)/g, (segment) => segment.replace(/[-_\s]/g, '').toUpperCase());
 
