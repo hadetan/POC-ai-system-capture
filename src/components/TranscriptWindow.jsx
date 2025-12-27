@@ -13,7 +13,6 @@ const SCROLL_STEP_PX = 280;
 export default function TranscriptWindow({ session, chunkTimeslice, preferredMimeType, platform }) {
     const {
         messages,
-        isStreaming,
         attachTranscriptionEvents,
         attachAssistantEvents,
         clearTranscript,
@@ -406,7 +405,7 @@ export default function TranscriptWindow({ session, chunkTimeslice, preferredMim
                         </>
                     ) : (
                         <div className="guide-hint" role="status" aria-live="polite">
-                            {!isStreaming && (
+                            {(!micActive && !captureActive) && (
                                 <div className="hints">
                                     <span className="guide-shortcut-keys guide-hint-keys">
                                         <kbd>{primaryModifierKey}</kbd>
