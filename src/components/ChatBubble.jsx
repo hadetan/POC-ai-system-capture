@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import CodeSnippet from './CodeSnippet';
 import { parseFencedCode } from '../utils/parseFencedCode';
 import { getAskAIPromptText } from '../utils/osDetection';
+import './css/ChatBubble.css';
 
 function ChatBubble({ text, side = 'left', isFinal = true, attachments = [], sourceType, sent = false }) {
     const bubbleSide = side === 'right' ? 'right' : 'left';

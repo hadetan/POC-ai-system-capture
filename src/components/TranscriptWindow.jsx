@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import ChatBubble from './ChatBubble';
 import { useTranscriptScroll } from '../hooks/useTranscriptScroll';
 import { getAltModifierKey, getPrimaryModifierKey } from '../utils/osDetection';
+import './css/TranscriptWindow.css';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const SCROLL_STEP_PX = 280;
