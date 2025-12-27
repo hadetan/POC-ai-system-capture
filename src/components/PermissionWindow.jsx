@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { runCaptureProbe } from '../utils/capturePipeline.js';
+import MicIcon from '../assets/icons/mic.svg?react';
+import ScreenIcon from '../assets/icons/screen.svg?react';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 
@@ -12,14 +14,14 @@ const TEST_STATES = {
 
 const formatTestLabel = (state) => {
     switch (state) {
-    case TEST_STATES.RUNNING:
-        return 'Testing…';
-    case TEST_STATES.SUCCESS:
-        return 'Working';
-    case TEST_STATES.FAILED:
-        return 'Needs retry';
-    default:
-        return 'Not tested';
+        case TEST_STATES.RUNNING:
+            return 'Testing…';
+        case TEST_STATES.SUCCESS:
+            return 'Working';
+        case TEST_STATES.FAILED:
+            return 'Needs retry';
+        default:
+            return 'Not tested';
     }
 };
 
@@ -32,8 +34,6 @@ const stopTracks = (stream) => {
         }
     });
 };
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const runMicrophoneTest = async () => {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
@@ -102,7 +102,14 @@ export default function PermissionWindow() {
             rationale: 'We ask macOS for mic access and capture a quick sample to confirm your voice input works for transcription.',
             status: micStatus,
             onTest: handleMicTest,
-            cta: micStatus === TEST_STATES.RUNNING ? 'Testing…' : 'Test mic'
+            cta: micStatus === TEST_STATES.RUNNING ? 'Testing…' : 'Test mic',
+            icon: <MicIcon className="permissions-card-icon" aria-hidden="true" focusable="false" />,
+            hints: {
+                [TEST_STATES.IDLE]: 'Click test and accept the macOS prompt so we can hear your microphone.',
+                [TEST_STATES.RUNNING]: 'Capturing a short live sample to validate the audio stream.',
+                [TEST_STATES.SUCCESS]: 'Microphone signal looks good—transcription will hear you clearly.',
+                [TEST_STATES.FAILED]: 'Try again and double-check that macOS granted microphone access.'
+            }
         },
         {
             key: 'screen-audio',
@@ -110,63 +117,100 @@ export default function PermissionWindow() {
             rationale: 'Uses the same start button flow as recording: selects a desktop source, opens screen permission, and captures a short audio sample.',
             status: screenAudioStatus,
             onTest: handleScreenAudioTest,
-            cta: screenAudioStatus === TEST_STATES.RUNNING ? 'Testing…' : 'Test screen + audio'
+            cta: screenAudioStatus === TEST_STATES.RUNNING ? 'Testing…' : 'Test screen + audio',
+            icon: <ScreenIcon className="permissions-card-icon" aria-hidden="true" focusable="false" />,
+            hints: {
+                [TEST_STATES.IDLE]: 'Choose your desktop source and allow screen + system audio capture.',
+                [TEST_STATES.RUNNING]: 'Listening for output to be sure system audio routes correctly.',
+                [TEST_STATES.SUCCESS]: 'Screen and system audio permissions are ready for the assistant.',
+                [TEST_STATES.FAILED]: 'Restart the test and confirm the screen capture picker is accepted.'
+            }
         }
     ]), [handleMicTest, handleScreenAudioTest, micStatus, screenAudioStatus]);
 
     return (
         <div className="permissions-window" role="presentation">
-            <header className="permissions-header">
-                <p className="permissions-kicker">macOS capture check</p>
-                <h1>Test your setup before you go live</h1>
-                <p className="permissions-intro">
-                    We run two quick tests so macOS can grant access and we can confirm capture works. Nothing is recorded or kept. This just ensures your mic and screen + system audio are ready for the assistant.
-                </p>
-            </header>
+            <div className="permissions-layout">
+                <header className="permissions-hero">
+                    <div className="permissions-hero-copy">
+                        <p className="permissions-kicker">macOS capture check</p>
+                        <h1 id="permissions-title">Test your setup before you go live</h1>
+                        <p className="permissions-intro">
+                            Authorize capture once and stay in the flow. We run
+                            quick checks so macOS grants access and we confirm
+                            your mic and system audio are ready for the
+                            assistant.
+                        </p>
+                    </div>
+                    <span className="permissions-hero-ring" aria-hidden="true" />
+                    <span className="permissions-hero-orb" aria-hidden="true" />
+                    <span className="permissions-hero-glow" aria-hidden="true" />
+                </header>
 
-            <div className="permissions-body">
-                {testCards.map(({ key, title, rationale, status: entryStatus, onTest, cta }) => (
-                    <article key={key} className="permissions-status-card">
-                        <div className="permissions-card-header">
-                            <h2>{title}</h2>
-                            <span className={`permissions-badge state-${entryStatus}`}>
-                                {formatTestLabel(entryStatus)}
-                            </span>
-                        </div>
-                        <p className="permissions-rationale">{rationale}</p>
-                        <div className="permissions-actions-row">
-                            <button
-                                type="button"
-                                className="primary"
-                                onClick={onTest}
-                                disabled={entryStatus === TEST_STATES.RUNNING || isTesting}
-                                aria-label={`${title} permission test`}
-                            >
-                                {cta}
-                            </button>
-                            <p className="permissions-hint">If macOS prompts, approve to continue.</p>
-                        </div>
-                    </article>
-                ))}
+                <div className="permissions-body" aria-describedby="permissions-title">
+                    <section className="permissions-status-grid" aria-label="Capture readiness checks">
+                        {testCards.map(({ key, title, rationale, status: entryStatus, onTest, cta, icon, hints }) => (
+                            <article key={key} className={`permissions-status-card state-${entryStatus}`}>
+                                <header className="permissions-card-header">
+                                    <div className="permissions-card-title">
+                                        <div className="permissions-icon-shell">{icon}</div>
+                                        <div>
+                                            <h2>{title}</h2>
+                                            <span className="permissions-card-status">
+                                                <span className={`status-pill status-${entryStatus}`}>
+                                                    <span className="status-indicator" aria-hidden="true" />
+                                                    {formatTestLabel(entryStatus)}
+                                                </span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </header>
+                                <p className="permissions-rationale">{rationale}</p>
+                                <div className="permissions-actions-row">
+                                    <button
+                                        type="button"
+                                        className="primary"
+                                        onClick={onTest}
+                                        disabled={entryStatus === TEST_STATES.RUNNING || isTesting}
+                                        aria-label={`${title} permission test`}
+                                    >
+                                        {cta}
+                                    </button>
+                                    <p className="permissions-hint">{hints?.[entryStatus] ?? 'If macOS prompts, approve to continue.'}</p>
+                                </div>
+                            </article>
+                        ))}
+                    </section>
+
+                    <aside className="permissions-guidance" aria-live="polite">
+                        <h3>Need to troubleshoot?</h3>
+                        <p>
+                            You can revisit permissions in System Settings &gt;
+                            Privacy & Security. For screen recording, confirm
+                            the app is checked under Screen Recording and
+                            Accessibility.
+                        </p>
+                    </aside>
+                </div>
+
+                {canContinue ? (
+                    <div className="permissions-alert success" role="status">All tests passed. You can continue to the app.</div>
+                ) : (
+                    <div className="permissions-alert" role="status">Run both tests so we can verify mic and screen + audio access.</div>
+                )}
+
+                <footer className="permissions-actions">
+                    <button
+                        type="button"
+                        className="primary"
+                        onClick={handleContinue}
+                        disabled={!canContinue || isTesting}
+                        aria-label={canContinue ? 'Continue to app' : 'Finish required tests before continuing'}
+                    >
+                        {canContinue ? 'Continue' : 'Complete tests to continue'}
+                    </button>
+                </footer>
             </div>
-
-            {canContinue ? (
-                <div className="permissions-alert success" role="status">All tests passed. You can continue to the app.</div>
-            ) : (
-                <div className="permissions-alert" role="status">Run both tests so we can verify mic and screen + audio access.</div>
-            )}
-
-            <footer className="permissions-actions">
-                <button
-                    type="button"
-                    className="primary"
-                    onClick={handleContinue}
-                    disabled={!canContinue || isTesting}
-                    aria-label={canContinue ? 'Continue to app' : 'Finish required tests before continuing'}
-                >
-                    {canContinue ? 'Continue' : 'Complete tests to continue'}
-                </button>
-            </footer>
         </div>
     );
 }
