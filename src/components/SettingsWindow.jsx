@@ -374,7 +374,6 @@ function SettingsWindow() {
 
         const targetState = !previewOpen;
         setPreviewBusy(true);
-        setStatus({ type: 'info', message: targetState ? 'Opening preview window…' : 'Closing preview window…' });
 
         try {
             if (targetState) {
