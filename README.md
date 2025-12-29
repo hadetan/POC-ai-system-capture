@@ -47,6 +47,15 @@ npm install
 npm run dev
 ```
 
+### Transcription configuration
+
+The AssemblyAI realtime client now exposes the following environment overrides for turn handling. All values are optional; omit them to use the defaults documented below.
+
+- `ASSEMBLYAI_FORMAT_TURNS` (`true` by default): set to `false` to skip formatted follow-up messages when shaving a few hundred milliseconds of latency is more important than punctuation.
+- `ASSEMBLYAI_MAX_TURN_SILENCE_MS`: cap (in ms) for silence length before AssemblyAI forces an `end_of_turn`. Leave unset to use the provider default.
+- `ASSEMBLYAI_MIN_END_OF_TURN_SILENCE_MS`: minimum silence (ms) required when the model is confident a turn has ended. Larger values trade latency for stability.
+- `ASSEMBLYAI_EOT_CONFIDENCE_THRESHOLD`: floating-point threshold (0-1) for AssemblyAI's end-of-turn confidence.
+
 ## Controls supported
 
 - `CTRL or CMD + H`: Toggle help guide

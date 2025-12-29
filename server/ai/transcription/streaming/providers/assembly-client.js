@@ -210,31 +210,77 @@ class AssemblyLiveClient extends EventEmitter {
     }
 
     handleTurnEvent(turn) {
-        if (!turn || typeof turn.transcript !== 'string') {
+        if (!turn || typeof turn !== 'object') {
             return;
         }
-        const text = turn.transcript.trimEnd();
-        if (!text) {
+
+        const transcript = typeof turn.transcript === 'string' ? turn.transcript.trimEnd() : '';
+        const utteranceRaw = typeof turn.utterance === 'string' ? turn.utterance : undefined;
+        const utterance = typeof utteranceRaw === 'string' ? utteranceRaw.trimEnd() : undefined;
+        const hasTranscript = transcript.length > 0;
+        const hasUtterance = typeof utterance === 'string' && utterance.length > 0;
+
+        if (!hasTranscript && !hasUtterance) {
             return;
         }
+
         const now = Date.now();
         const latencyMs = this.lastSendTs ? Math.max(0, now - this.lastSendTs) : undefined;
-        const isFinal = Boolean(turn.end_of_turn);
+        const endOfTurn = Boolean(turn.end_of_turn);
+        const endOfTurnConfidence = typeof turn.end_of_turn_confidence === 'number'
+            ? turn.end_of_turn_confidence
+            : undefined;
+        const turnOrder = typeof turn.turn_order === 'number' ? turn.turn_order : undefined;
+        const turnIsFormatted = Boolean(turn.turn_is_formatted);
+        const formattedTranscript = turnIsFormatted && hasTranscript ? transcript : undefined;
+        const displayText = turnIsFormatted
+            ? (formattedTranscript || transcript || utterance || '')
+            : (utterance || transcript);
+        const words = Array.isArray(turn.words) ? turn.words : undefined;
+
         const payload = {
-            text,
-            type: isFinal ? 'final_transcript' : 'partial_transcript',
+            text: displayText,
+            type: endOfTurn ? 'final_transcript' : 'partial_transcript',
             latencyMs,
-            confidence: typeof turn.end_of_turn_confidence === 'number'
-                ? turn.end_of_turn_confidence
-                : undefined
+            confidence: endOfTurnConfidence,
+            turnOrder,
+            utterance,
+            transcript,
+            turnIsFormatted,
+            endOfTurn
         };
         this.emit('transcription', payload);
 
-        if (isFinal) {
+        const normalizedTurn = {
+            provider: 'assembly',
+            turnOrder,
+            transcript,
+            utterance,
+            formattedTranscript,
+            isFormatted: turnIsFormatted,
+            endOfTurn,
+            endOfTurnConfidence,
+            words,
+            latencyMs,
+            timestamp: now,
+            rawType: typeof turn.type === 'string' ? turn.type : 'Turn'
+        };
+
+        if (turnIsFormatted) {
+            normalizedTurn.eventType = 'turn-formatted';
+        } else if (endOfTurn) {
+            normalizedTurn.eventType = 'turn-final';
+        } else {
+            normalizedTurn.eventType = 'turn-update';
+        }
+
+        this.emit('turn-event', normalizedTurn);
+
+        if (endOfTurn) {
             this.emit('turn-complete', {
-                turnOrder: typeof turn.turn_order === 'number' ? turn.turn_order : undefined,
-                transcript: text,
-                confidence: payload.confidence
+                turnOrder,
+                transcript: formattedTranscript || utterance || transcript,
+                confidence: endOfTurnConfidence
             });
         }
     }
