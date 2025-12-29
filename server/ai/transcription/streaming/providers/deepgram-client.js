@@ -233,7 +233,7 @@ class DeepgramLiveClient extends EventEmitter {
         const confidence = typeof alternative?.confidence === 'number' ? alternative.confidence : undefined;
 
         const previous = this.absoluteTranscript || '';
-        if (absoluteText === previous) {
+        if (absoluteText === previous && !isFinal) {
             return;
         }
 
