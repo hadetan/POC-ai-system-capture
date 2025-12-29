@@ -1,4 +1,3 @@
-const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { PersistentAudioConverter } = require('./audio-converter');
 const { createVadInstance } = require('./vad');
@@ -29,7 +28,6 @@ class LiveStreamingSession extends EventEmitter {
         this.converterFactory = options.converterFactory || ((converterOptions) => new PersistentAudioConverter(converterOptions));
         this.terminated = false;
         this.lastSequence = -1;
-        this.transcript = '';
         this.inputMimeType = 'audio/webm;codecs=opus';
         this.audioConverter = null;
         this.chunkInfo = new Map();
@@ -42,11 +40,15 @@ class LiveStreamingSession extends EventEmitter {
 
         this.lastSendTs = 0;
         this.lastChunkMeta = null;
-        this.lastServerTranscript = '';
         this.pcmBuffer = Buffer.alloc(0);
         this.pendingFlushTimer = null;
         this.maxPendingChunkMs = clampNumber(numOr(this.streamingConfig.maxPendingChunkMs, 60), 20, 120);
         this.firstChunkMeta = null;
+        this.turnState = new Map();
+        this.turnEventMode = false;
+        this.syntheticTurnPointer = 0;
+        this.legacyActiveTurnOrder = null;
+        this.activeTurnOrder = null;
 
         const minSamples = Math.round(PCM_SAMPLE_RATE * 0.02); // 20ms floor
         const configuredChunkBytes = numOr(this.streamingConfig.targetPcmChunkBytes, NaN);
@@ -111,76 +113,35 @@ class LiveStreamingSession extends EventEmitter {
         this.maxQueuedKeepaliveWarns = 5;
         this.keepaliveWarns = 0;
 
-        // Listen for transcription events from the Live API client
-        this.client.on('transcription', (data) => {
-            if (this.terminated) return;
-            const absoluteText = typeof data.text === 'string' ? data.text : '';
-            if (!absoluteText) {
+        const handleTurnUpdate = (turnPayload = {}) => {
+            if (this.terminated) {
                 return;
             }
-            const isFinal = Boolean(
-                data?.isFinal
-                || data?.end_of_turn
-                || data?.endOfTurn
-                || data?.message_type === 'final_transcript'
-                || data?.type === 'final_transcript'
-            );
-            const now = Date.now();
-            this.lastServerUpdateAt = now;
-            this.lastSpeechAt = now;
+            this.lastServerUpdateAt = Date.now();
+            this.lastSpeechAt = this.lastServerUpdateAt;
             this.silenceDurationMs = 0;
+            this.applyTurnUpdate(turnPayload);
+        };
 
-            const previousServer = this.lastServerTranscript;
-            if (absoluteText === previousServer) {
-                return;
-            }
-
-            let delta = '';
-            if (absoluteText.startsWith(previousServer) && previousServer.length > 0) {
-                delta = absoluteText.slice(previousServer.length);
-                this.transcript = absoluteText;
-            } else if (previousServer.endsWith(absoluteText) && absoluteText.length > 0) {
-                return;
-            } else if (absoluteText.includes(previousServer) && previousServer.length > 0) {
-                // Overlap handled below
-            } else {
-                // Find largest overlap between previousServer suffix and absoluteText prefix.
-                const maxOverlap = Math.min(previousServer.length, absoluteText.length);
-                let overlap = 0;
-                for (let k = maxOverlap; k > 0; k -= 1) {
-                    try {
-                        if (previousServer.slice(previousServer.length - k) === absoluteText.slice(0, k)) {
-                            overlap = k;
-                            break;
-                        }
-                    } catch (err) { }
-                }
-                delta = absoluteText.slice(overlap);
-                this.transcript = (this.transcript || '') + delta;
-            }
-            this.lastServerTranscript = absoluteText;
-
-            const latencyMs = typeof data.latencyMs === 'number' ? data.latencyMs : undefined;
-            let pipelineMs = undefined;
+        this.client.on('turn-event', (turnPayload) => {
+            this.turnEventMode = true;
             try {
-                const info = this.chunkInfo.get(this.lastSequence);
-                if (info?.captureTs) {
-                    pipelineMs = Date.now() - info.captureTs;
-                }
-                const breakdown = computeLatencyBreakdown(info);
-                if (breakdown) {
-                    log('info', `Session ${this.id} latency breakdown total:${breakdown.total}ms cap->ipc:${breakdown.captureToIpc ?? '-'}ms ipc->svc:${breakdown.ipcToService ?? '-'}ms svc->pcm:${breakdown.serviceToConverter ?? '-'}ms pcm->ws:${breakdown.converterToWs ?? '-'}ms ws->txt:${breakdown.wsToTranscript ?? '-'}ms`);
-                }
-            } catch (err) { }
-            log('info', `Session ${this.id} update (${this.transcript.length} chars)`);
-            this.emit('update', {
-                text: absoluteText,
-                delta,
-                isFinal,
-                latencyMs,
-                conversionMs: this.lastConversionMs,
-                pipelineMs
-            });
+                handleTurnUpdate(turnPayload);
+            } catch (error) {
+                log('error', `Session ${this.id} failed to process turn-event: ${error.message}`);
+            }
+        });
+
+        // Legacy path for providers without structured turn events (e.g., Deepgram)
+        this.client.on('transcription', (data = {}) => {
+            if (this.turnEventMode || this.terminated) {
+                return;
+            }
+            const fallback = this.normalizeLegacyTranscription(data);
+            if (!fallback) {
+                return;
+            }
+            handleTurnUpdate(fallback);
         });
 
         this.client.on('chunk-sent', (meta = {}) => {
@@ -860,6 +821,166 @@ class LiveStreamingSession extends EventEmitter {
         delete meta.chunkDurationMs;
         delete meta.chunkOffsetMs;
         return meta;
+    }
+
+    normalizeLegacyTranscription(data = {}) {
+        const text = typeof data.text === 'string' ? data.text.trimEnd() : '';
+        const delta = typeof data.delta === 'string' ? data.delta.trim() : '';
+        const baseText = text || delta;
+        if (!baseText) {
+            return null;
+        }
+        const isFinal = Boolean(
+            data?.isFinal
+            || data?.end_of_turn
+            || data?.endOfTurn
+            || data?.type === 'final_transcript'
+        );
+        if (this.legacyActiveTurnOrder == null) {
+            this.legacyActiveTurnOrder = this.syntheticTurnPointer;
+            this.syntheticTurnPointer += 1;
+        }
+        const turnOrder = this.legacyActiveTurnOrder;
+        if (isFinal) {
+            this.legacyActiveTurnOrder = null;
+        }
+        return {
+            provider: 'legacy',
+            turnOrder,
+            transcript: baseText,
+            isFormatted: false,
+            endOfTurn: isFinal,
+            latencyMs: typeof data.latencyMs === 'number' ? data.latencyMs : undefined,
+            eventType: isFinal ? 'turn-final' : 'turn-update'
+        };
+    }
+
+    applyTurnUpdate(turnPayload = {}) {
+        const provider = turnPayload.provider || 'unknown';
+        let turnOrder = Number.isInteger(turnPayload.turnOrder) ? turnPayload.turnOrder : null;
+
+        if (turnOrder === null || turnOrder === undefined) {
+            if (this.activeTurnOrder != null) {
+                turnOrder = this.activeTurnOrder;
+            } else {
+                turnOrder = this.syntheticTurnPointer;
+                this.syntheticTurnPointer += 1;
+            }
+        }
+
+        let turnState = this.turnState.get(turnOrder);
+        const isNewTurn = !turnState;
+        if (!turnState) {
+            turnState = {
+                turnOrder,
+                provider,
+                transcript: '',
+                utterance: '',
+                formattedTranscript: '',
+                isFormatted: false,
+                endOfTurn: false,
+                endOfTurnConfidence: undefined,
+                words: undefined,
+                displayText: ''
+            };
+            this.turnState.set(turnOrder, turnState);
+        }
+
+        if (typeof turnPayload.transcript === 'string' && turnPayload.transcript.length) {
+            turnState.transcript = turnPayload.transcript;
+        }
+        if (typeof turnPayload.utterance === 'string' && turnPayload.utterance.length) {
+            turnState.utterance = turnPayload.utterance;
+        }
+        if (typeof turnPayload.formattedTranscript === 'string' && turnPayload.formattedTranscript.length) {
+            turnState.formattedTranscript = turnPayload.formattedTranscript;
+            turnState.isFormatted = true;
+        }
+        if (turnPayload.isFormatted) {
+            turnState.isFormatted = true;
+        }
+        if (Array.isArray(turnPayload.words) && turnPayload.words.length > 0) {
+            turnState.words = turnPayload.words;
+        }
+        if (typeof turnPayload.endOfTurnConfidence === 'number') {
+            turnState.endOfTurnConfidence = turnPayload.endOfTurnConfidence;
+        }
+        if (turnPayload.endOfTurn) {
+            turnState.endOfTurn = true;
+        }
+
+        const displayText = turnState.isFormatted
+            ? (turnState.formattedTranscript || turnState.transcript || turnState.utterance || '')
+            : (turnState.utterance || turnState.transcript || turnState.formattedTranscript || '');
+        turnState.displayText = displayText;
+        turnState.provider = provider;
+
+        const latencyMs = typeof turnPayload.latencyMs === 'number' ? turnPayload.latencyMs : undefined;
+        let pipelineMs;
+        try {
+            const info = this.chunkInfo.get(this.lastSequence);
+            if (info?.captureTs) {
+                pipelineMs = Date.now() - info.captureTs;
+            }
+            const breakdown = computeLatencyBreakdown(info);
+            if (breakdown) {
+                log('info', `Session ${this.id} latency breakdown total:${breakdown.total}ms cap->ipc:${breakdown.captureToIpc ?? '-'}ms ipc->svc:${breakdown.ipcToService ?? '-'}ms svc->pcm:${breakdown.serviceToConverter ?? '-'}ms pcm->ws:${breakdown.converterToWs ?? '-'}ms ws->txt:${breakdown.wsToTranscript ?? '-'}ms`);
+            }
+        } catch (err) {
+            // ignore latency breakdown failures
+        }
+
+        const conversionMs = this.lastConversionMs;
+        const eventType = turnPayload.eventType
+            || (turnState.isFormatted ? 'turn-formatted' : (turnState.endOfTurn ? 'turn-final' : 'turn-update'));
+        const isFinal = Boolean(turnState.endOfTurn || turnState.isFormatted);
+
+        log('info', `Session ${this.id} turn ${turnOrder} ${eventType} (${displayText.length} chars)`);
+
+        this.emit('update', {
+            text: displayText,
+            turnOrder,
+            turn: {
+                order: turnOrder,
+                transcript: turnState.transcript,
+                utterance: turnState.utterance,
+                formattedTranscript: turnState.formattedTranscript,
+                isFormatted: turnState.isFormatted,
+                endOfTurn: turnState.endOfTurn,
+                endOfTurnConfidence: turnState.endOfTurnConfidence,
+                words: turnState.words,
+                provider: turnState.provider
+            },
+            isFinal,
+            latencyMs,
+            conversionMs,
+            pipelineMs,
+            eventType,
+            isNewTurn
+        });
+
+        if (!turnState.endOfTurn) {
+            this.activeTurnOrder = turnOrder;
+        } else if (this.activeTurnOrder === turnOrder) {
+            this.activeTurnOrder = null;
+        }
+
+        if (turnState.endOfTurn && turnState.isFormatted) {
+            const maxStored = 32;
+            if (this.turnState.size > maxStored) {
+                const removable = Array.from(this.turnState.keys()).sort((a, b) => a - b);
+                while (this.turnState.size > maxStored && removable.length) {
+                    const oldest = removable.shift();
+                    if (oldest === undefined) {
+                        break;
+                    }
+                    const target = this.turnState.get(oldest);
+                    if (target && target.endOfTurn && target.isFormatted && oldest !== turnOrder) {
+                        this.turnState.delete(oldest);
+                    }
+                }
+            }
+        }
     }
 }
 

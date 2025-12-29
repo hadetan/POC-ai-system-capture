@@ -90,10 +90,12 @@ class StreamingTranscriptionService extends EventEmitter {
         });
 
         session.on('update', (payload) => {
-            const deltaSize = typeof payload.delta === 'string' ? payload.delta.length : 0;
+            const textSize = typeof payload.text === 'string' ? payload.text.length : 0;
+            const turnOrder = typeof payload.turnOrder === 'number' ? payload.turnOrder : payload.turn?.order;
+            const eventLabel = payload.eventType || (payload.turn?.isFormatted ? 'turn-formatted' : 'turn-update');
             const latencyMs = typeof payload.latencyMs === 'number' ? payload.latencyMs : undefined;
             const pipelineMs = typeof payload.pipelineMs === 'number' ? payload.pipelineMs : undefined;
-            log('info', `Session ${sessionId} update (${deltaSize} chars) ws:${latencyMs ?? '-'}ms e2e:${pipelineMs ?? '-'}ms`);
+            log('info', `Session ${sessionId} turn ${turnOrder ?? '-'} ${eventLabel} (${textSize} chars) ws:${latencyMs ?? '-'}ms e2e:${pipelineMs ?? '-'}ms`);
             this.emit('session-update', {
                 sessionId,
                 sourceName: session.sourceName,

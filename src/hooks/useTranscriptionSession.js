@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { initialTranscriptText, resolveTranscriptText, isTranscriptRollback } from '../utils/transcriptText.js';
 import { buildAttachmentPreview, mergeAttachmentPreviews } from '../utils/attachmentPreview.js';
 import { mergeAssistantText } from '../utils/assistantMessage.js';
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const STALL_THRESHOLD_MS = 1500;
 const STALL_WATCH_INTERVAL_MS = 1000;
-const CONTINUATION_LINGER_MS = 2500;
 const SOURCE_TYPES = {
     SYSTEM: 'system',
     MIC: 'mic'
@@ -69,18 +67,15 @@ export function useTranscriptionSession() {
             tracker = {
                 sessionId,
                 sourceType: sourceTypeHint || SOURCE_TYPES.SYSTEM,
-                pendingMessageId: null,
-                continuationMessageId: null,
-                lastMessageUpdateTs: 0,
                 isStreaming: false,
-                lastServerText: ''
+                turnMessages: new Map()
             };
             map.set(sessionId, tracker);
         } else if (sourceTypeHint && tracker.sourceType !== sourceTypeHint) {
             tracker.sourceType = sourceTypeHint;
         }
-        if (typeof tracker.lastServerText !== 'string') {
-            tracker.lastServerText = '';
+        if (!(tracker.turnMessages instanceof Map)) {
+            tracker.turnMessages = new Map();
         }
         return tracker;
     }, []);
@@ -200,10 +195,9 @@ export function useTranscriptionSession() {
             if (!tracker) {
                 return;
             }
-            tracker.pendingMessageId = null;
-            tracker.continuationMessageId = null;
-            tracker.lastMessageUpdateTs = 0;
-            tracker.lastServerText = '';
+            if (tracker.turnMessages instanceof Map) {
+                tracker.turnMessages.clear();
+            }
         });
         setMessages([]);
         messagesRef.current = [];
@@ -382,117 +376,92 @@ export function useTranscriptionSession() {
             return;
         }
 
-        const serverText = (() => {
-            if (typeof payload.text === 'string') return payload.text;
-            if (typeof payload.transcript === 'string') return payload.transcript;
-            if (typeof payload.message === 'string') return payload.message;
-            if (typeof payload.partial === 'string') return payload.partial;
-            return '';
-        })();
-        const delta = (() => {
-            if (typeof payload.delta === 'string') return payload.delta;
-            if (typeof payload.chars === 'string') return payload.chars;
-            if (typeof payload.partial === 'string') return payload.partial;
-            return '';
-        })();
-        const isFinal = Boolean(payload.isFinal);
-        const hasDelta = delta.length > 0;
-        const hasServerText = serverText.length > 0;
-        if (!hasDelta && !hasServerText) {
+        const turn = payload?.turn || {};
+        const turnOrder = Number.isInteger(turn.order)
+            ? turn.order
+            : (Number.isInteger(payload.turnOrder) ? payload.turnOrder : null);
+        if (turnOrder === null || turnOrder === undefined) {
+            return;
+        }
+
+        const formatted = typeof turn.formattedTranscript === 'string' ? turn.formattedTranscript : undefined;
+        const utterance = typeof turn.utterance === 'string' ? turn.utterance : undefined;
+        const transcript = typeof turn.transcript === 'string' ? turn.transcript : undefined;
+        const fallbackText = typeof payload.text === 'string' ? payload.text : undefined;
+        const displayText = formatted || utterance || transcript || fallbackText;
+        if (typeof displayText !== 'string' || !displayText.length) {
+            return;
+        }
+
+        const isFormatted = Boolean(turn.isFormatted);
+        const endOfTurn = Boolean(turn.endOfTurn);
+        const isFinal = Boolean(payload.isFinal || isFormatted || endOfTurn);
+        const turnMap = tracker.turnMessages;
+        const entry = turnMap.get(turnOrder) || {};
+
+        const turnSnapshot = {
+            order: turnOrder,
+            transcript,
+            utterance,
+            formattedTranscript: formatted,
+            isFormatted,
+            endOfTurn,
+            endOfTurnConfidence: typeof turn.endOfTurnConfidence === 'number' ? turn.endOfTurnConfidence : undefined,
+            provider: turn.provider || payload.provider,
+            words: Array.isArray(turn.words) ? turn.words : undefined
+        };
+
+        if (entry.lastText === displayText && entry.isFinal === isFinal) {
             return;
         }
 
         const now = Date.now();
-        const lastUpdateTs = tracker.lastMessageUpdateTs || 0;
-        const canContinue = lastUpdateTs > 0 && (now - lastUpdateTs) <= CONTINUATION_LINGER_MS;
-        const textContext = { delta, serverText };
-        const previousAbsolute = tracker.lastServerText || '';
-        const candidateAbsolute = resolveTranscriptText(previousAbsolute, textContext);
-        const rollbackDetected = isTranscriptRollback({
-            previousText: previousAbsolute,
-            nextText: candidateAbsolute,
-            isFinal,
-            hasServerText
-        });
-        const previousMessageId = tracker.pendingMessageId || tracker.continuationMessageId;
-        const continuationId = canContinue && !rollbackDetected ? tracker.continuationMessageId : null;
-
-        if (!canContinue || rollbackDetected) {
-            tracker.continuationMessageId = null;
-        }
-
         setMessages((prev) => {
             const next = [...prev];
-            let forceNewMessage = rollbackDetected;
-            let targetId = forceNewMessage ? null : (tracker.pendingMessageId || continuationId);
-
-            if (!forceNewMessage && targetId) {
-                const targetIndex = next.findIndex((msg) => msg.id === targetId);
-                if (targetIndex !== -1) {
-                    const current = next[targetIndex];
-                    const updatedText = resolveTranscriptText(current.text, textContext);
-                    const shrank = !isFinal && typeof current.text === 'string' && updatedText.length < current.text.length;
-                    if (shrank) {
-                        forceNewMessage = true;
-                    } else {
-                        next[targetIndex] = { ...current, text: updatedText, isFinal, sourceType: tracker.sourceType };
-                        tracker.pendingMessageId = isFinal ? null : targetId;
-                        tracker.continuationMessageId = isFinal ? null : targetId;
-                        tracker.lastMessageUpdateTs = now;
-                        tracker.lastServerText = isFinal ? '' : candidateAbsolute;
+            let messageId = entry.messageId;
+            if (messageId) {
+                const idx = next.findIndex((msg) => msg.id === messageId);
+                if (idx !== -1) {
+                    const current = next[idx];
+                    if (current.text === displayText && current.isFinal === isFinal) {
                         return next;
                     }
-                } else {
-                    targetId = null;
+                    next[idx] = {
+                        ...current,
+                        text: displayText,
+                        isFinal,
+                        turnOrder,
+                        turn: turnSnapshot
+                    };
+                    return next;
                 }
+                messageId = null;
             }
 
-            if (forceNewMessage && previousMessageId) {
-                const existingIndex = next.findIndex((msg) => msg.id === previousMessageId);
-                if (existingIndex !== -1 && !next[existingIndex].isFinal) {
-                    next[existingIndex] = { ...next[existingIndex], isFinal: true };
-                }
-                tracker.pendingMessageId = null;
-                tracker.continuationMessageId = null;
-                tracker.lastServerText = '';
-                tracker.lastMessageUpdateTs = 0;
-            }
-
-            const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            const initialText = candidateAbsolute || initialTranscriptText(textContext);
-            if (!initialText) {
-                return next;
-            }
-
-            if (!forceNewMessage && isFinal && !tracker.pendingMessageId && !tracker.continuationMessageId) {
-                for (let idx = next.length - 1; idx >= 0; idx -= 1) {
-                    const candidate = next[idx];
-                    if (!candidate || candidate.side !== 'left') {
-                        continue;
-                    }
-                    if (candidate.sourceType && tracker.sourceType && candidate.sourceType !== tracker.sourceType) {
-                        continue;
-                    }
-                    const normalizedExisting = typeof candidate.text === 'string' ? candidate.text.trim() : '';
-                    const normalizedIncoming = initialText.trim();
-                    if (normalizedExisting && normalizedIncoming &&
-                        (normalizedExisting === normalizedIncoming || normalizedExisting.endsWith(normalizedIncoming))) {
-                        tracker.lastMessageUpdateTs = now;
-                        tracker.lastServerText = '';
-                        return next;
-                    }
-                    break;
-                }
-            }
-
-            tracker.pendingMessageId = isFinal ? null : id;
-            tracker.continuationMessageId = isFinal ? null : id;
-            tracker.lastMessageUpdateTs = now;
-            tracker.lastServerText = isFinal ? '' : candidateAbsolute;
-
-            next.push({ id, text: initialText, isFinal, ts: now, side: 'left', sent: false, sourceType: tracker.sourceType });
+            const newId = `turn-${turnOrder}-${now}-${Math.random().toString(36).slice(2)}`;
+            const message = {
+                id: newId,
+                text: displayText,
+                isFinal,
+                ts: now,
+                side: 'left',
+                sent: false,
+                sourceType: tracker.sourceType,
+                turnOrder,
+                turn: turnSnapshot
+            };
+            next.push(message);
+            entry.messageId = newId;
             return next;
         });
+
+        entry.lastText = displayText;
+        entry.isFinal = isFinal;
+        entry.lastUpdated = now;
+        entry.isFormatted = isFormatted;
+        entry.endOfTurn = endOfTurn;
+        entry.turn = turnSnapshot;
+        turnMap.set(turnOrder, entry);
     }, []);
 
     const attachTranscriptionEvents = useCallback(() => {
@@ -513,6 +482,9 @@ export function useTranscriptionSession() {
             switch (payload.type) {
                 case 'started':
                     tracker.isStreaming = true;
+                    if (tracker.turnMessages instanceof Map) {
+                        tracker.turnMessages.clear();
+                    }
                     if (payload.sourceType && !sourceSessionMapRef.current.has(payload.sourceType)) {
                         sourceSessionMapRef.current.set(payload.sourceType, eventSessionId);
                     }
@@ -553,9 +525,9 @@ export function useTranscriptionSession() {
                     }
                     break;
                 case 'stopped': {
-                    tracker.pendingMessageId = null;
-                    tracker.continuationMessageId = null;
-                    tracker.lastMessageUpdateTs = 0;
+                    if (tracker.turnMessages instanceof Map) {
+                        tracker.turnMessages.clear();
+                    }
                     tracker.isStreaming = false;
                     if (sourceSessionMapRef.current.get(tracker.sourceType) === eventSessionId) {
                         sourceSessionMapRef.current.delete(tracker.sourceType);

@@ -25,6 +25,12 @@ const clamp = (value, min, max) => {
     return Math.min(max, Math.max(min, value));
 };
 
+const DEFAULT_ASSEMBLY_PARAMS = {
+    maxTurnSilence: 1500,
+    minEndOfTurnSilenceWhenConfident: 600,
+    endOfTurnConfidenceThreshold: 0.55
+};
+
 module.exports = function loadTranscriptionConfig() {
     const {
         TRANSCRIPTION_PROVIDER,
@@ -36,29 +42,39 @@ module.exports = function loadTranscriptionConfig() {
     } = process.env;
 
     const transcriptAiConfig = {
-        ASSEMBLYAI_MAX_TURN_SILENCE_MS: null,
-        ASSEMBLYAI_MIN_END_OF_TURN_SILENCE_MS: null,
-        ASSEMBLYAI_EOT_CONFIDENCE_THRESHOLD: null
-    }
+        ASSEMBLYAI_MAX_TURN_SILENCE_MS: process.env.ASSEMBLYAI_MAX_TURN_SILENCE_MS,
+        ASSEMBLYAI_MIN_END_OF_TURN_SILENCE_MS: process.env.ASSEMBLYAI_MIN_END_OF_TURN_SILENCE_MS,
+        ASSEMBLYAI_EOT_CONFIDENCE_THRESHOLD: process.env.ASSEMBLYAI_EOT_CONFIDENCE_THRESHOLD
+    };
     const provider = (TRANSCRIPTION_PROVIDER || 'assembly').toLowerCase();
     const ffmpegPath = resolveFfmpegPath(TRANSCRIPTION_FFMPEG_PATH);
     const apiKey = typeof TRANSCRIPTION_API_KEY === 'string' && TRANSCRIPTION_API_KEY.trim() !== ''
         ? TRANSCRIPTION_API_KEY.trim()
         : null;
 
-    const assemblyParams = {};
-    const maxTurnSilence = toInteger(transcriptAiConfig.ASSEMBLYAI_MAX_TURN_SILENCE_MS, null);
-    if (Number.isInteger(maxTurnSilence) && maxTurnSilence > 0) {
-        assemblyParams.maxTurnSilence = maxTurnSilence;
-    }
-    const minConfidentSilence = toInteger(transcriptAiConfig.ASSEMBLYAI_MIN_END_OF_TURN_SILENCE_MS, null);
-    if (Number.isInteger(minConfidentSilence) && minConfidentSilence > 0) {
-        assemblyParams.minEndOfTurnSilenceWhenConfident = minConfidentSilence;
-    }
-    const endOfTurnConfidence = toNumber(transcriptAiConfig.ASSEMBLYAI_EOT_CONFIDENCE_THRESHOLD, null);
-    if (typeof endOfTurnConfidence === 'number' && !Number.isNaN(endOfTurnConfidence)) {
-        assemblyParams.endOfTurnConfidenceThreshold = endOfTurnConfidence;
-    }
+    const assemblyParams = {
+        formatTurns: true,
+        maxTurnSilence: DEFAULT_ASSEMBLY_PARAMS.maxTurnSilence,
+        minEndOfTurnSilenceWhenConfident: DEFAULT_ASSEMBLY_PARAMS.minEndOfTurnSilenceWhenConfident,
+        endOfTurnConfidenceThreshold: DEFAULT_ASSEMBLY_PARAMS.endOfTurnConfidenceThreshold
+    };
+    const maxTurnSilence = toInteger(
+        transcriptAiConfig.ASSEMBLYAI_MAX_TURN_SILENCE_MS,
+        DEFAULT_ASSEMBLY_PARAMS.maxTurnSilence
+    );
+    assemblyParams.maxTurnSilence = clamp(maxTurnSilence, 250, 6000);
+
+    const minConfidentSilence = toInteger(
+        transcriptAiConfig.ASSEMBLYAI_MIN_END_OF_TURN_SILENCE_MS,
+        DEFAULT_ASSEMBLY_PARAMS.minEndOfTurnSilenceWhenConfident
+    );
+    assemblyParams.minEndOfTurnSilenceWhenConfident = clamp(minConfidentSilence, 200, 4000);
+
+    const endOfTurnConfidence = toNumber(
+        transcriptAiConfig.ASSEMBLYAI_EOT_CONFIDENCE_THRESHOLD,
+        DEFAULT_ASSEMBLY_PARAMS.endOfTurnConfidenceThreshold
+    );
+    assemblyParams.endOfTurnConfidenceThreshold = clamp(endOfTurnConfidence, 0, 1);
 
     const maxPendingChunkMs = clamp(toInteger(TRANSCRIPTION_MAX_PENDING_CHUNK_MS, 45), 20, 200);
     const targetPcmChunkMs = clamp(toInteger(TRANSCRIPTION_TARGET_PCM_CHUNK_MS, 60), 20, 160);
