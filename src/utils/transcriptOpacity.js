@@ -34,7 +34,10 @@ export const computeTranscriptOpacityVars = (opacity) => {
 
 export const TRANSCRIPT_OPACITY_OPTIONS = [
     { label: '0.25', value: 0.25 },
+    { label: '0.38', value: 0.375 },
     { label: '0.50', value: 0.5 },
+    { label: '0.63', value: 0.625 },
     { label: '0.75', value: 0.75 },
+    { label: '0.88', value: 0.875 },
     { label: '1.00', value: 1 }
 ];

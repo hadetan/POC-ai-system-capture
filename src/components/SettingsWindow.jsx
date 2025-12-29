@@ -29,6 +29,23 @@ function SettingsWindow() {
     const [previewOpen, setPreviewOpen] = useState(false);
     const [previewBusy, setPreviewBusy] = useState(false);
 
+    const clampedOpacity = useMemo(() => clampOpacity(transcriptOpacity), [transcriptOpacity]);
+
+    const activeOpacityLabel = useMemo(() => {
+        const selected = TRANSCRIPT_OPACITY_OPTIONS.find(({ value }) => Math.abs(value - clampedOpacity) < 0.001);
+        if (selected) {
+            return selected.label;
+        }
+        return clampedOpacity.toFixed(2);
+    }, [clampedOpacity]);
+
+    const sliderProgress = useMemo(() => {
+        const min = 0.25;
+        const max = 1;
+        const normalized = (Math.min(max, Math.max(min, clampedOpacity)) - min) / (max - min);
+        return Math.min(100, Math.max(0, normalized * 100));
+    }, [clampedOpacity]);
+
     const modelsRequestIdRef = useRef(0);
     const fetchModelsTimeoutRef = useRef(null);
 
@@ -511,24 +528,29 @@ function SettingsWindow() {
                     <span className="settings-field-label" id="transcript-opacity-label">Opacity level</span>
                     <small className="settings-hint">Higher value reduces transparency</small>
                     <div
-                        className="opacity-options"
+                        className="opacity-slider-control"
                         role="group"
                         aria-labelledby="transcript-opacity-label"
                     >
-                        {TRANSCRIPT_OPACITY_OPTIONS.map((option) => {
-                            const isSelected = Math.abs(transcriptOpacity - option.value) < 0.001;
-                            return (
-                                <button
-                                    key={option.value}
-                                    type="button"
-                                    className={`opacity-option${isSelected ? ' selected' : ''}`}
-                                    aria-pressed={isSelected}
-                                    onClick={() => handleOpacityChange(option.value)}
-                                >
-                                    {option.label}
-                                </button>
-                            );
-                        })}
+                        <div className="opacity-slider-rail">
+                            <input
+                                type="range"
+                                min="0.25"
+                                max="1"
+                                step="0.125"
+                                value={clampedOpacity}
+                                onChange={(event) => handleOpacityChange(Number(event.target.value))}
+                                className="opacity-slider-input"
+                                aria-valuemin={0.25}
+                                aria-valuemax={1}
+                                aria-valuenow={Number(clampedOpacity.toFixed(3))}
+                                aria-valuetext={`${activeOpacityLabel} opacity`}
+                                style={{ '--opacity-progress': `${sliderProgress}%` }}
+                            />
+                        </div>
+                        <span className="opacity-slider-value" aria-live="polite">
+                            {activeOpacityLabel} opacity
+                        </span>
                     </div>
                 </div>
             </div>
