@@ -438,7 +438,7 @@ export function useTranscriptionSession() {
                 messageId = null;
             }
 
-            const newId = messageId || `turn-${turnOrder}-${now}-${Math.random().toString(36).slice(2)}`;
+            const newId = `turn-${turnOrder}-${now}-${Math.random().toString(36).slice(2)}`;
             const message = {
                 id: newId,
                 text: displayText,
