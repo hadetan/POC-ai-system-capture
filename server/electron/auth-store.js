@@ -31,9 +31,26 @@ const readFileSafe = ({ fsModule, targetPath }) => {
     return {};
 };
 
+const setRestrictedPermissions = ({ fsModule, targetPath }) => {
+    if (process.platform === 'win32') {
+        return;
+    }
+    try {
+        fsModule.chmodSync(targetPath, 0o600);
+    } catch (error) {
+        console.warn('[AuthStore] Unable to set restrictive permissions.', error);
+    }
+};
+
 const writeFileSafe = ({ fsModule, targetPath, data }) => {
-    ensureDirectory({ fsModule, targetPath });
-    fsModule.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf8');
+    try {
+        ensureDirectory({ fsModule, targetPath });
+        fsModule.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf8');
+        setRestrictedPermissions({ fsModule, targetPath });
+    } catch (error) {
+        console.error('[AuthStore] Failed to write auth file.', error);
+        throw error;
+    }
 };
 
 const createAuthStore = ({ app, fsModule = fs, pathModule = path } = {}) => {
