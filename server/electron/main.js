@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, globalShortcut, nativeImage, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, globalShortcut, nativeImage, systemPreferences, shell } = require('electron');
 const loadTranscriptionConfig = require('../config/transcription');
 const loadAssistantConfig = require('../config/assistant');
 const { createTranscriptionService } = require('../ai/transcription');
@@ -19,10 +19,110 @@ const { registerAssistantHandlers } = require('./ipc/assistant');
 const { createSecureStore } = require('./secure-store');
 const { createSettingsStore } = require('./settings-store');
 const { registerSettingsHandlers } = require('./ipc/settings');
+const { createAuthStore } = require('./auth-store');
+const { registerAuthHandlers } = require('./ipc/auth');
 const { createPermissionManager } = require('./permissions');
 const { registerPermissionHandlers } = require('./ipc/permissions');
 
 loadEnv();
+
+const AUTH_DEEP_LINK_PROTOCOL = 'capture';
+const pendingDeepLinkUrls = [];
+let flushDeepLinkQueue = null;
+
+const enqueueDeepLinkUrl = (url) => {
+    const trimmed = typeof url === 'string' ? url.trim() : '';
+    if (!trimmed) {
+        return;
+    }
+    pendingDeepLinkUrls.push(trimmed);
+    if (typeof flushDeepLinkQueue === 'function') {
+        flushDeepLinkQueue();
+    }
+};
+
+const findDeepLinkArg = (argv = []) => {
+    if (!Array.isArray(argv)) {
+        return '';
+    }
+    for (const arg of argv) {
+        if (typeof arg !== 'string') {
+            continue;
+        }
+        if (arg.toLowerCase().startsWith(`${AUTH_DEEP_LINK_PROTOCOL}:`)) {
+            return arg;
+        }
+    }
+    return '';
+};
+
+const parseParams = (searchParams) => {
+    const result = {};
+    if (!searchParams) {
+        return result;
+    }
+    for (const [key, value] of searchParams.entries()) {
+        result[key] = value;
+    }
+    return result;
+};
+
+const parseOAuthCallbackUrl = (urlString) => {
+    const trimmed = typeof urlString === 'string' ? urlString.trim() : '';
+    if (!trimmed) {
+        return null;
+    }
+    let parsed;
+    try {
+        parsed = new URL(trimmed);
+    } catch (_error) {
+        return null;
+    }
+    if (parsed.protocol !== `${AUTH_DEEP_LINK_PROTOCOL}:`) {
+        return null;
+    }
+    const params = parseParams(parsed.searchParams);
+    const fragmentRaw = parsed.hash || '';
+    const fragmentString = fragmentRaw.startsWith('#') ? fragmentRaw.slice(1) : fragmentRaw;
+    const fragmentParams = parseParams(new URLSearchParams(fragmentString));
+    return {
+        url: trimmed,
+        host: parsed.host || '',
+        pathname: parsed.pathname || '',
+        params,
+        fragmentParams,
+        code: params.code || fragmentParams.code || '',
+        state: params.state || fragmentParams.state || '',
+        error: params.error || fragmentParams.error || '',
+        errorDescription: params.error_description || fragmentParams.error_description || '',
+        fragment: fragmentRaw,
+        receivedAt: new Date().toISOString()
+    };
+};
+
+if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    process.exit(0);
+}
+
+app.on('second-instance', (_event, argv = []) => {
+    const deepLink = findDeepLinkArg(argv);
+    if (deepLink) {
+        enqueueDeepLinkUrl(deepLink);
+    }
+});
+
+app.on('will-finish-launching', () => {
+    app.on('open-url', (event, url) => {
+        event.preventDefault();
+        enqueueDeepLinkUrl(url);
+    });
+});
+
+const initialDeepLink = findDeepLinkArg(process.argv);
+if (initialDeepLink) {
+    enqueueDeepLinkUrl(initialDeepLink);
+}
 
 if (process.platform === 'linux') {
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
@@ -45,6 +145,7 @@ let assistantConfig = null;
 const assistantSessionWindowMap = new Map();
 let secureStore = null;
 let settingsStore = null;
+let authStore = null;
 
 const MOVE_STEP_PX = 200;
 
@@ -227,6 +328,7 @@ const synchronizeAssistantConfiguration = async () => {
 const initializeApp = async () => {
     secureStore = secureStore || createSecureStore();
     settingsStore = settingsStore || createSettingsStore({ app });
+    authStore = authStore || createAuthStore({ app });
 
     await synchronizeAssistantConfiguration();
 
@@ -236,11 +338,14 @@ const initializeApp = async () => {
         getTranscriptWindow,
         getSettingsWindow,
         getPermissionWindow,
+        getAuthWindow,
         createTranscriptWindow,
         createSettingsWindow,
         createPermissionWindow,
+        createAuthWindow,
         destroySettingsWindow,
         destroyPermissionWindow,
+        destroyAuthWindow,
         sendPermissionStatus,
         moveStepPx,
         getPreviewWindow
@@ -301,7 +406,7 @@ const initializeApp = async () => {
     // macOS pre-flight: always show permission/testing window before overlays.
     let permissionPreflightComplete = permissionManager.isMac ? false : true;
 
-    let emitPermissionStatus = () => {};
+    let emitPermissionStatus = () => { };
 
     const ensurePermissionWindowVisible = (status) => {
         const currentStatus = status || permissionManager.refreshStatus();
@@ -345,13 +450,32 @@ const initializeApp = async () => {
         return true;
     };
 
+    let awaitingAuthentication = false;
+
+    const ensureAuthWindowVisible = () => {
+        awaitingAuthentication = true;
+        return createAuthWindow();
+    };
+
+    const closeAuthWindowWithoutExit = () => {
+        awaitingAuthentication = false;
+        destroyAuthWindow({ exitApp: false });
+    };
+
+    const canShowMainExperience = () => {
+        if (awaitingAuthentication) {
+            return false;
+        }
+        return showMainExperience();
+    };
+
     const permissionIpcRegistration = registerPermissionHandlers({
         ipcMain,
         permissionManager,
         sendPermissionStatus,
         onPermissionsGranted: () => {
             permissionPreflightComplete = true;
-            if (showMainExperience()) {
+            if (canShowMainExperience()) {
                 shortcutManager.registerAllShortcuts();
             }
         }
@@ -361,7 +485,110 @@ const initializeApp = async () => {
         emitPermissionStatus = permissionIpcRegistration.emitStatusToWindow;
     }
 
-    showMainExperience();
+    const initialAccessToken = authStore.loadAccessToken();
+    if (typeof initialAccessToken === 'string' && initialAccessToken.trim()) {
+        awaitingAuthentication = false;
+        if (canShowMainExperience()) {
+            shortcutManager.registerAllShortcuts();
+        }
+    } else {
+        ensureAuthWindowVisible();
+    }
+
+    const { emitOAuthCallback } = registerAuthHandlers({
+        ipcMain,
+        authStore,
+        env: process.env,
+        onTokenSet: ({ accessToken }) => {
+            const sanitized = typeof accessToken === 'string' ? accessToken.trim() : '';
+            if (!sanitized) {
+                ensureAuthWindowVisible();
+                return;
+            }
+            closeAuthWindowWithoutExit();
+            if (canShowMainExperience()) {
+                shortcutManager.registerAllShortcuts();
+            }
+        },
+        onTokenCleared: () => {
+            ensureAuthWindowVisible();
+        },
+        openExternal: (url) => shell.openExternal(url)
+    });
+
+    const registerAuthProtocol = () => {
+        try {
+            if (process.defaultApp && process.argv.length >= 2) {
+                const appPath = path.resolve(process.argv[1]);
+                const success = app.setAsDefaultProtocolClient(AUTH_DEEP_LINK_PROTOCOL, process.execPath, [appPath]);
+                if (!success) {
+                    console.warn(`[Auth] Failed to register ${AUTH_DEEP_LINK_PROTOCOL} protocol handler in development mode.`);
+                }
+                return;
+            }
+            const success = app.setAsDefaultProtocolClient(AUTH_DEEP_LINK_PROTOCOL);
+            if (!success) {
+                console.warn(`[Auth] Failed to register ${AUTH_DEEP_LINK_PROTOCOL} protocol handler.`);
+            }
+        } catch (error) {
+            console.warn('[Auth] Protocol registration failed.', error);
+        }
+    };
+
+    registerAuthProtocol();
+
+    const handleDeepLinkUrl = (url) => {
+        const trimmed = typeof url === 'string' ? url.trim() : '';
+        if (!trimmed) {
+            return;
+        }
+
+        let parsedUrl;
+        try {
+            parsedUrl = new URL(trimmed);
+        } catch (_error) {
+            console.warn('[Auth] Ignoring malformed deep link URL.');
+            return;
+        }
+
+        if (parsedUrl.protocol !== `${AUTH_DEEP_LINK_PROTOCOL}:`) {
+            console.warn(`[Auth] Ignoring unsupported deep link protocol: ${parsedUrl.protocol}`);
+            return;
+        }
+
+        const payload = parseOAuthCallbackUrl(trimmed);
+        if (!payload) {
+            return;
+        }
+        if (awaitingAuthentication) {
+            const existing = getAuthWindow();
+            if (!existing) {
+                ensureAuthWindowVisible();
+            } else {
+                try {
+                    existing.focus();
+                } catch (_error) {
+                    // ignore focus failures
+                }
+            }
+        }
+        if (typeof emitOAuthCallback === 'function') {
+            emitOAuthCallback(payload);
+        }
+    };
+
+    flushDeepLinkQueue = () => {
+        while (pendingDeepLinkUrls.length > 0) {
+            const next = pendingDeepLinkUrls.shift();
+            handleDeepLinkUrl(next);
+        }
+    };
+
+    setImmediate(() => {
+        if (typeof flushDeepLinkQueue === 'function') {
+            flushDeepLinkQueue();
+        }
+    });
 
     registerSettingsHandlers({
         ipcMain,
@@ -372,7 +599,7 @@ const initializeApp = async () => {
         onSettingsApplied: async () => {
             const updatedConfig = await synchronizeAssistantConfiguration();
             if (updatedConfig && updatedConfig.isEnabled) {
-                if (showMainExperience()) {
+                if (canShowMainExperience()) {
                     shortcutManager.registerAllShortcuts();
                 }
             }
@@ -404,7 +631,7 @@ const initializeApp = async () => {
             ensureSettingsWindowVisible();
             return;
         }
-        if (!showMainExperience()) {
+        if (!canShowMainExperience()) {
             return;
         }
         sendToTranscriptWindow('control-window:toggle-capture');
@@ -510,7 +737,7 @@ const initializeApp = async () => {
             ensureSettingsWindowVisible();
             return;
         }
-        if (!showMainExperience()) {
+        if (!canShowMainExperience()) {
             return;
         }
 
@@ -568,7 +795,7 @@ const initializeApp = async () => {
     screen.on('display-removed', positionOverlayWindows);
 
     app.on('activate', () => {
-        showMainExperience();
+        canShowMainExperience();
     });
 
     registerDesktopCaptureHandler({ ipcMain, desktopCapturer });

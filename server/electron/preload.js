@@ -45,6 +45,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const MIN = 20; const MAX = 5000;
         return Math.min(MAX, Math.max(MIN, parsed));
     },
+    auth: {
+        getAccessToken: () => ipcRenderer.invoke('auth:get-token'),
+        setAccessToken: (accessToken) => ipcRenderer.invoke('auth:set-token', { accessToken }),
+        clearAccessToken: () => ipcRenderer.invoke('auth:clear-token'),
+        launchOAuthUrl: (url) => ipcRenderer.invoke('auth:launch-oauth', { url }),
+        onOAuthCallback: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => {};
+            }
+            const listener = (_event, payload) => callback(payload);
+            ipcRenderer.on('auth:oauth-callback', listener);
+            ipcRenderer.send('auth:oauth-subscribe');
+            return () => {
+                ipcRenderer.removeListener('auth:oauth-callback', listener);
+                ipcRenderer.send('auth:oauth-unsubscribe');
+            };
+        }
+    },
+    env: {
+        get: () => ipcRenderer.invoke('env:get')
+    },
     controlWindow: {
         onToggleCapture: (callback) => {
             if (typeof callback !== 'function') {

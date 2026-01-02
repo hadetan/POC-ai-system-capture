@@ -1,10 +1,12 @@
-import { useEffect, useMemo } from 'react';
-import TranscriptWindow from './components/TranscriptWindow';
-import SettingsWindow from './components/SettingsWindow';
-import PermissionWindow from './components/PermissionWindow';
-import TranscriptPreviewWindow from './components/TranscriptPreviewWindow';
-import { useTranscriptionSession } from './hooks/useTranscriptionSession';
+import { Suspense, lazy, useEffect, useMemo } from 'react';
 import './App.css';
+
+// Lazy-load window components to keep the initial bundle size under the chunk warning threshold.
+const TranscriptWindowEntry = lazy(() => import('./windows/TranscriptWindowEntry'));
+const SettingsWindow = lazy(() => import('./components/SettingsWindow'));
+const PermissionWindow = lazy(() => import('./components/PermissionWindow'));
+const TranscriptPreviewWindow = lazy(() => import('./components/TranscriptPreviewWindow'));
+const AuthWindow = lazy(() => import('./components/AuthWindow'));
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const DEFAULT_MIME = 'audio/webm;codecs=opus';
@@ -12,7 +14,8 @@ const WINDOW_VARIANTS = {
     TRANSCRIPT: 'transcript',
     SETTINGS: 'settings',
     PERMISSIONS: 'permissions',
-    TRANSCRIPT_PREVIEW: 'transcript-preview'
+    TRANSCRIPT_PREVIEW: 'transcript-preview',
+    AUTH: 'auth'
 };
 
 const resolvePreferredMimeType = () => {
@@ -47,6 +50,7 @@ function App() {
     const isSettingsWindow = windowVariant === WINDOW_VARIANTS.SETTINGS;
     const isPermissionWindow = windowVariant === WINDOW_VARIANTS.PERMISSIONS;
     const isTranscriptPreviewWindow = windowVariant === WINDOW_VARIANTS.TRANSCRIPT_PREVIEW;
+    const isAuthWindow = windowVariant === WINDOW_VARIANTS.AUTH;
 
     const overlayMovementHandledGlobally = useMemo(() => {
         if (typeof electronAPI?.overlay?.movementHandledGlobally === 'boolean') {
@@ -68,8 +72,6 @@ function App() {
         }
         return 'unknown';
     }, []);
-
-    const session = useTranscriptionSession();
 
     useEffect(() => {
         if (typeof document === 'undefined') {
@@ -113,25 +115,20 @@ function App() {
         return () => window.removeEventListener('keydown', handler);
     }, [overlayMovementHandledGlobally]);
 
-    if (isSettingsWindow) {
-        return <SettingsWindow />;
-    }
-
-    if (isPermissionWindow) {
-        return <PermissionWindow />;
-    }
-
-    if (isTranscriptPreviewWindow) {
-        return <TranscriptPreviewWindow />;
-    }
-
     return (
-        <TranscriptWindow
-            session={session}
-            chunkTimeslice={chunkTimeslice}
-            preferredMimeType={preferredMimeType}
-            platform={platform}
-        />
+        <Suspense fallback={null}>
+            {isSettingsWindow && <SettingsWindow />}
+            {isPermissionWindow && <PermissionWindow />}
+            {isTranscriptPreviewWindow && <TranscriptPreviewWindow />}
+            {isAuthWindow && <AuthWindow />}
+            {!isSettingsWindow && !isPermissionWindow && !isTranscriptPreviewWindow && !isAuthWindow && (
+                <TranscriptWindowEntry
+                    chunkTimeslice={chunkTimeslice}
+                    preferredMimeType={preferredMimeType}
+                    platform={platform}
+                />
+            )}
+        </Suspense>
     );
 }
 
