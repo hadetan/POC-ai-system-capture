@@ -59,14 +59,25 @@ const attachInterceptors = (instance, tokenManager, { onForceLogout } = {}) => {
     });
 
     /**
-     * NOTE: This refresh endpoint relies on cookie-based authentication.
+     * This refresh endpoint requires cookie-based authentication.
      * The axios instance created in `createApiClient` is configured with `withCredentials: true`,
      * so the browser automatically sends any session cookies set by the backend.
-     * If cookies are not correctly configured or the backend does not issue a session cookie,
-     * this request will fail and `forceLogout` will be triggered.
+     * If cookies are disabled in the browser, or if cookies are not correctly configured / issued
+     * by the backend, this request will fail and `forceLogout` will be triggered. In that case,
+     * an explicit error is thrown to indicate that cookie-based authentication is required.
      */
 
     const refreshSession = async () => {
+        // Validate cookie support in browser environments before attempting refresh.
+        if (typeof window !== 'undefined' && window.navigator && window.navigator.cookieEnabled === false) {
+            const cookieError = new Error(
+                'Cookie-based authentication is required, but browser cookies are disabled. ' +
+                'Enable cookies in your browser settings and reload the page.'
+            );
+            await forceLogout();
+            throw cookieError;
+        }
+
         if (!refreshPromise) {
             refreshPromise = instance.post('/auth/google/session/refresh', {}, { _skipAuthRefresh: true, _skipAuthToken: true })
                 .then(async (response) => {

@@ -1,11 +1,12 @@
-import { useEffect, useMemo } from 'react';
-import TranscriptWindow from './components/TranscriptWindow';
-import SettingsWindow from './components/SettingsWindow';
-import PermissionWindow from './components/PermissionWindow';
-import TranscriptPreviewWindow from './components/TranscriptPreviewWindow';
-import AuthWindow from './components/AuthWindow';
-import { useTranscriptionSession } from './hooks/useTranscriptionSession';
+import { Suspense, lazy, useEffect, useMemo } from 'react';
 import './App.css';
+
+// Lazy-load window components to keep the initial bundle size under the chunk warning threshold.
+const TranscriptWindowEntry = lazy(() => import('./windows/TranscriptWindowEntry'));
+const SettingsWindow = lazy(() => import('./components/SettingsWindow'));
+const PermissionWindow = lazy(() => import('./components/PermissionWindow'));
+const TranscriptPreviewWindow = lazy(() => import('./components/TranscriptPreviewWindow'));
+const AuthWindow = lazy(() => import('./components/AuthWindow'));
 
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null;
 const DEFAULT_MIME = 'audio/webm;codecs=opus';
@@ -72,8 +73,6 @@ function App() {
         return 'unknown';
     }, []);
 
-    const session = useTranscriptionSession();
-
     useEffect(() => {
         if (typeof document === 'undefined') {
             return () => {};
@@ -116,29 +115,20 @@ function App() {
         return () => window.removeEventListener('keydown', handler);
     }, [overlayMovementHandledGlobally]);
 
-    if (isSettingsWindow) {
-        return <SettingsWindow />;
-    }
-
-    if (isPermissionWindow) {
-        return <PermissionWindow />;
-    }
-
-    if (isTranscriptPreviewWindow) {
-        return <TranscriptPreviewWindow />;
-    }
-
-    if (isAuthWindow) {
-        return <AuthWindow />;
-    }
-
     return (
-        <TranscriptWindow
-            session={session}
-            chunkTimeslice={chunkTimeslice}
-            preferredMimeType={preferredMimeType}
-            platform={platform}
-        />
+        <Suspense fallback={null}>
+            {isSettingsWindow && <SettingsWindow />}
+            {isPermissionWindow && <PermissionWindow />}
+            {isTranscriptPreviewWindow && <TranscriptPreviewWindow />}
+            {isAuthWindow && <AuthWindow />}
+            {!isSettingsWindow && !isPermissionWindow && !isTranscriptPreviewWindow && !isAuthWindow && (
+                <TranscriptWindowEntry
+                    chunkTimeslice={chunkTimeslice}
+                    preferredMimeType={preferredMimeType}
+                    platform={platform}
+                />
+            )}
+        </Suspense>
     );
 }
 

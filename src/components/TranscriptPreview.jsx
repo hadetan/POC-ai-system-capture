@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import ChatBubble from './ChatBubble';
 import { clampOpacity, computeTranscriptOpacityVars } from '../utils/transcriptOpacity';
+import './css/TranscriptWindow.css';
 import './css/TranscriptPreview.css';
 
 const PREVIEW_MESSAGES = [

@@ -1,6 +1,6 @@
 const defaultBridge = typeof window !== 'undefined' ? window.electronAPI : globalThis.electronAPI;
 
-const sanitizeValue = (value) => {
+const normalizeValue = (value) => {
     if (typeof value === 'string') {
         return value.trim();
     }
@@ -26,7 +26,7 @@ export const createRuntimeConfig = ({ bridge = defaultBridge } = {}) => {
             }
             const sanitized = {};
             for (const [key, value] of Object.entries(env)) {
-                const next = sanitizeValue(value);
+                const next = normalizeValue(value);
                 if (next) {
                     sanitized[key] = next;
                 }
